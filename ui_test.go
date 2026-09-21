@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -120,6 +121,67 @@ func TestDriveTrackSelection(t *testing.T) {
 	}
 	if cues.lastSel != 5 || cues.rec.ID != 5 {
 		t.Errorf("cues tool did not follow selection: lastSel=%d rec=%d", cues.lastSel, cues.rec.ID)
+	}
+}
+
+// TestDriveQuitShortcut verifies the Cmd-Q (Ctrl-Q on non-mac) shortcut
+// triggers the app quit path, and that a plain "q" keypress does not.
+func TestDriveQuitShortcut(t *testing.T) {
+	InitFontSubsystem()
+	ResetInputSession()
+	GetHost().WindowSize = Vec2{1180, 740}
+
+	dbPath := buildTestLibrary(t)
+	a := NewApp(dbPath)
+
+	var quitCalled atomic.Bool
+	a.onQuit = func() { quitCalled.Store(true) }
+
+	port, err := drive.FreePort()
+	if err != nil {
+		t.Fatal(err)
+	}
+	AcceptInputCommands(port)
+
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				RunFrameFn(a.RootView)
+				time.Sleep(8 * time.Millisecond)
+			}
+		}
+	}()
+	defer func() {
+		close(stop)
+		wg.Wait()
+		a.lib.Close()
+	}()
+
+	time.Sleep(60 * time.Millisecond)
+
+	// Plain "q" (e.g. typed into a field) must not quit.
+	if err := drive.Key(port, "q"); err != nil {
+		t.Fatalf("plain q: %v", err)
+	}
+	time.Sleep(40 * time.Millisecond)
+	if quitCalled.Load() {
+		t.Fatal("plain q triggered quit")
+	}
+
+	// Cmd-Q quits.
+	if err := drive.Key(port, "q", "cmd"); err != nil {
+		t.Fatalf("cmd-q: %v", err)
+	}
+	time.Sleep(60 * time.Millisecond)
+	if !quitCalled.Load() {
+		t.Fatal("Cmd-Q did not trigger quit")
 	}
 }
 

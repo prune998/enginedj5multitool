@@ -51,11 +51,25 @@ type App struct {
 	Selected   int64 // selected Track.id
 	ActiveTool int
 	Tools      []AppTool
+
+	Theme string // "auto" (OS default), "light" or "dark"
+
+	// Splitter between the track browser and the tool's detail panel.
+	splitW       float32 // browser width; 0 = default
+	splitRowRect Rect
+
+	onQuit func() // test hook; defaults to app.Quit
 }
+
+const (
+	splitterWidth   = float32(10)
+	minBrowserWidth = float32(300)
+	minDetailWidth  = float32(360)
+)
 
 // NewApp builds the app state and opens the library.
 func NewApp(dbPath string) *App {
-	a := &App{DBPath: dbPath}
+	a := &App{DBPath: dbPath, Theme: "auto", splitW: 560}
 	for _, f := range toolFactories {
 		a.Tools = append(a.Tools, f())
 	}
@@ -100,11 +114,15 @@ func (a *App) Refresh() {
 // RootView is the whole UI: a top bar with library controls, a tool sidebar
 // and the active tool's panel.
 func (a *App) RootView() {
-	Container(Attrs(Viewport), func() {
+	if handleShortcuts() {
+		a.quit()
+	}
+	p := a.pal()
+	Container(Attrs(Viewport, BackgroundVec(p.bgRoot)), func() {
 		a.TopBar()
 		Container(Attrs(Row, Grow(1), Expand), func() {
 			a.Sidebar()
-			Container(Attrs(Grow(1), Expand, Viewport, Pad(10), Gap(8)), func() {
+			Container(Attrs(Grow(1), Expand, Viewport, Pad(10)), func() {
 				if a.ActiveTool < 0 || a.ActiveTool >= len(a.Tools) {
 					return
 				}
@@ -114,14 +132,37 @@ func (a *App) RootView() {
 	})
 }
 
-// TopBar shows the library path, music root and load status.
+// handleShortcuts handles global keyboard shortcuts. It reports true when the
+// user requested to quit (Cmd-Q on macOS, Ctrl-Q on Windows/Linux). It runs at
+// the very top of the frame, before any widget, so a focused text input cannot
+// swallow the combo.
+func handleShortcuts() bool {
+	fi := GetFrameInput()
+	if fi.Key == KeyQ && GetInputState().Modifiers == PrimaryMod() {
+		fi.Key = 0   // consume: no widget may react to the key...
+		fi.Text = "" // ...and no text input may insert a stray "q"
+		return true
+	}
+	return false
+}
+
+func (a *App) quit() {
+	if a.onQuit != nil {
+		a.onQuit()
+		return
+	}
+	app.Quit()
+}
+
+// TopBar shows the library path, music root, theme selector and load status.
 func (a *App) TopBar() {
-	Container(Attrs(Row, CrossMid, Pad2(8, 10), Gap(10), Background(220, 14, 94, 1)), func() {
-		Label("Engine DJ Multi Tool", FontWeight(WeightBold), FontSize(16))
+	p := a.pal()
+	Container(Attrs(Row, CrossMid, Pad2(8, 10), Gap(10), BackgroundVec(p.bgTop)), func() {
+		Label("Engine DJ Multi Tool", FontWeight(WeightBold), FontSize(16), TextColorVec(p.text))
 		Spacer(8)
 
-		Label("Library", TextColor(220, 8, 40, 1))
-		Container(Attrs(FixWidth(320)), func() {
+		Label("Library", TextColorVec(p.textDim))
+		Container(Attrs(Grow(1), MinWidth(180), MaxWidth(320)), func() {
 			TextInput(&a.DBPath)
 		})
 		if Button(SymRefresh, "Load") {
@@ -129,29 +170,38 @@ func (a *App) TopBar() {
 			a.Refresh()
 		}
 
-		Label("Music root", TextColor(220, 8, 40, 1))
-		Container(Attrs(FixWidth(260)), func() {
+		Label("Music root", TextColorVec(p.textDim))
+		Container(Attrs(Grow(1), MinWidth(120), MaxWidth(260)), func() {
 			TextInput(&a.MusicRoot)
+		})
+
+		Container(Attrs(Row, CrossMid), func() {
+			theme := &a.Theme
+			SegmentedControl(theme, func() {
+				SegmentedCell("Auto", "auto")
+				SegmentedCell("Light", "light")
+				SegmentedCell("Dark", "dark")
+			})
 		})
 
 		Spacer(8)
 		if a.LibErrStr != "" {
 			Label(a.LibErrStr, TextColor(0, 70, 40, 1))
 		} else {
-			Label(fmt.Sprintf("%d tracks", a.TrackCount), TextColor(220, 8, 40, 1))
+			Label(fmt.Sprintf("%d tracks", a.TrackCount), TextColorVec(p.textDim))
 		}
 	})
 }
 
 // Sidebar lists the registered tools.
 func (a *App) Sidebar() {
-	Container(Attrs(FixWidth(190), Expand, Pad(6), Gap(4), Background(220, 10, 90, 1)), func() {
+	p := a.pal()
+	Container(Attrs(FixWidth(190), Expand, Pad(6), Gap(4), BackgroundVec(p.bgSide)), func() {
 		for i, t := range a.Tools {
-			tool, idx := t, i
-			active := idx == a.ActiveTool
+			tool, idx, active := t, i, i == a.ActiveTool
 			Container(Attrs(Pad2(8, 10), Corners(6), Row, CrossMid, Gap(8)), func() {
 				if IsHovered() {
-					ModAttrs(Background(220, 14, 84, 1))
+					ModAttrs(BackgroundVec(p.rowHover))
 				}
 				if active {
 					ModAttrs(BackgroundVec(AccentBlue))
@@ -159,24 +209,81 @@ func (a *App) Sidebar() {
 				if PressAction() {
 					a.ActiveTool = idx
 				}
-				Icon(tool.Icon(), TextColor(0, 0, 20, 1))
-				labelAttrs := []TextStyleFn{TextColor(0, 0, 20, 1)}
 				if active {
-					labelAttrs = []TextStyleFn{TextColor(0, 0, 100, 1), FontWeight(WeightBold)}
+					Icon(tool.Icon(), TextColor(0, 0, 100, 1))
+					Label(tool.Name(), TextColor(0, 0, 100, 1), FontWeight(WeightBold))
+				} else {
+					Icon(tool.Icon(), TextColorVec(p.text))
+					Label(tool.Name(), TextColorVec(p.text))
 				}
-				Label(tool.Name(), labelAttrs...)
 			})
 		}
 		Spacer(6)
-		Label("Tools are pluggable —\nsee RegisterTool().", FontSize(11), TextColor(220, 6, 55, 1))
+		a.L("Tools are pluggable —\nsee RegisterTool().", FontSize(11), TextColorVec(p.textDim))
+	})
+}
+
+// captureSplitRow records the screen rect of the tool's main row; the splitter
+// uses it to convert mouse X into the browser panel width.
+func (a *App) captureSplitRow() {
+	a.splitRowRect = GetScreenRect()
+}
+
+func (a *App) splitWidth() float32 {
+	if a.splitW <= 0 {
+		return 560
+	}
+	return a.splitW
+}
+
+func (a *App) setSplitFromMouse() {
+	mouse := GetInputState().MousePoint
+	w := mouse[0] - a.splitRowRect.Origin[0]
+	maxW := a.splitRowRect.Size[0] - minDetailWidth - splitterWidth
+	if maxW < minBrowserWidth {
+		maxW = minBrowserWidth
+	}
+	if w < minBrowserWidth {
+		w = minBrowserWidth
+	}
+	if w > maxW {
+		w = maxW
+	}
+	a.splitW = w
+}
+
+// Splitter is a draggable divider that resizes the track browser. Place it
+// between the browser container (FixWidth(a.splitWidth())) and the detail
+// container (Grow(1)) inside a row that called a.captureSplitRow().
+func (a *App) Splitter() {
+	p := a.pal()
+	Container(Attrs(FixWidth(splitterWidth), Expand, Pad2(0, 3)), func() {
+		NextAccessName("splitter")
+		AssignAccess()
+		if IsHovered() {
+			ModAttrs(BackgroundVec(p.dividerHover))
+		}
+		if IsActive() {
+			ModAttrs(BackgroundVec(p.dividerActive))
+		}
+		PressAction() // capture the pointer on mouse-down; release ends the drag
+		if IsActive() {
+			a.setSplitFromMouse()
+		}
+		Container(Attrs(Grow(1), Expand, Corners(3), BackgroundVec(p.grabber)), func() {
+			if IsHovered() || IsActive() {
+				ModAttrs(BackgroundVec(p.grabberHover))
+			}
+		})
 	})
 }
 
 // BrowserPanel is the shared track list used by the tools: a search row plus
 // a sortable, virtualized table. Clicking a row selects the track.
 func (a *App) BrowserPanel(extra *TableColumn[TrackRecord]) {
+	p := a.pal()
 	Container(Attrs(Row, CrossMid, Gap(8), Pad4(0, 0, 8, 0)), func() {
-		Icon(SymSearch, TextColor(220, 8, 40, 1))
+		Icon(SymSearch, TextColorVec(p.textDim))
 		Container(Attrs(Expand), func() {
 			TextInput(&a.FilterDraft)
 		})
@@ -189,22 +296,22 @@ func (a *App) BrowserPanel(extra *TableColumn[TrackRecord]) {
 	columns := []TableColumn[TrackRecord]{
 		{
 			Label: "ID", Width: 60,
-			Cell: func(r TrackRecord) { Label(fmt.Sprintf("%d", r.ID)) },
+			Cell: func(r TrackRecord) { a.L(fmt.Sprintf("%d", r.ID)) },
 			Less: func(a, b TrackRecord) bool { return a.ID < b.ID },
 		},
 		{
 			Label: "Artist", Width: 190,
-			Cell: func(r TrackRecord) { Label(r.Artist) },
+			Cell: func(r TrackRecord) { a.L(r.Artist) },
 			Less: func(a, b TrackRecord) bool { return a.Artist < b.Artist },
 		},
 		{
 			Label: "Title",
-			Cell:  func(r TrackRecord) { Label(r.Title) },
+			Cell:  func(r TrackRecord) { a.L(r.Title) },
 			Less:  func(a, b TrackRecord) bool { return a.Title < b.Title },
 		},
 		{
 			Label: "Length", Width: 70,
-			Cell: func(r TrackRecord) { Label(formatDuration(r.Length)) },
+			Cell: func(r TrackRecord) { a.L(formatDuration(r.Length)) },
 			Less: func(a, b TrackRecord) bool { return a.Length < b.Length },
 		},
 	}
@@ -226,6 +333,7 @@ func (a *App) BrowserPanel(extra *TableColumn[TrackRecord]) {
 // clicks, and stamps rows with access names (used by screen readers and the
 // drive test harness). Wired via TableAttrs.OnRow.
 func (a *App) browserRowHighlight(index int, r TrackRecord) {
+	p := a.pal()
 	NextAccessName(fmt.Sprintf("track-%d", r.ID))
 	NextAccessDescription(r.Artist + " — " + r.Title)
 	NextAccessValue(formatDuration(r.Length))
@@ -234,23 +342,28 @@ func (a *App) browserRowHighlight(index int, r TrackRecord) {
 		a.Selected = r.ID
 	}
 	selected := a.Selected == r.ID
-	hue, sat, light := float32(220), float32(8), float32(100)
-	if r.ID%2 == 1 {
-		light = 96
+	bg := p.rowAlt
+	if index%2 == 0 {
+		bg = Vec4{0, 0, 0, 0}
 	}
 	if selected {
-		hue, sat, light = 204, 70, 85
+		bg = p.rowSel
 		if IsHovered() {
-			light = 78
+			bg = p.rowSelHover
 		}
 	} else if IsHovered() {
-		sat, light = 14, 90
+		bg = p.rowHover
 	}
-	ModAttrs(Background(hue, sat, light, 1))
+	if bg[3] > 0 {
+		ModAttrs(BackgroundVec(bg))
+	}
 }
 
-func runUI(dbPath, snapshotPath string, toolIdx int, filter string) {
+func runUI(dbPath, snapshotPath string, toolIdx int, filter, theme string) {
 	a := NewApp(dbPath)
+	if theme == "light" || theme == "dark" {
+		a.Theme = theme
+	}
 	if filter != "" {
 		a.Filter, a.FilterDraft = filter, filter
 		a.Refresh()

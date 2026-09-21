@@ -1,5 +1,7 @@
 # enginedj5multitool
 
+[![CI](https://github.com/prune998/enginedj5multitool/actions/workflows/ci.yml/badge.svg)](https://github.com/prune998/enginedj5multitool/actions/workflows/ci.yml)
+
 A CLI + GUI tool to inspect and fix the performance data (hot cues and loops)
 stored in an **Engine DJ v5** database (`m.db`), used by Denon DJ SC/LC/Prime
 gear and Engine DJ Desktop. Built with the pure-Go UI toolkit
@@ -24,9 +26,9 @@ It can:
 ./enginedj5multitool -db /path/to/m.db
 ```
 
-The window has a top bar (library path, music root override, reload), a
-sidebar with the tools, and a shared track browser (search box + sortable,
-virtualized table; click a row to select it):
+The window has a top bar (library path, music root override, theme selector,
+reload), a sidebar with the tools, and a shared track browser (search box +
+sortable, virtualized table; click a row to select it):
 
 - **Cues & Loops** — shows the 8 cue and 8 loop slots of the selected track
   with color swatches, timestamps and order status. `Dry run` previews the fix
@@ -39,6 +41,18 @@ virtualized table; click a row to select it):
   tagless files get a new tag). With *Also update Engine DJ database* checked,
   the matching `Track` row is updated so the library metadata stays in sync.
 
+Other UI features:
+
+- **Dark mode** — the top bar has an `Auto | Light | Dark` selector; `Auto`
+  (the default) follows the OS appearance.
+- **Splitter** — the divider between the track list and the tool panel can be
+  dragged to resize them (min/max clamped).
+- **#tag bubbles** — `#tags` in the comment are rendered as colored bubbles
+  below the comment field: click one to remove it from the comment, or type a
+  new one and press `+ Add`. They are stored as plain `#tag` words in the
+  comment (the convention for genre/scene tagging).
+- **⌘Q / Ctrl-Q** quits the app.
+
 Files are located via the path stored in the `Track` table: absolute paths,
 paths relative to the database directory, `../`-chains resolved against the
 DB location, or relative to the *music root* from the top bar.
@@ -49,6 +63,7 @@ Useful flags:
 |-------------|--------------------------------------------------------------------|
 | `-ui`       | Force the GUI (default when no CLI action flags are given)          |
 | `-tool N`   | Open tool tab N (0 = Cues & Loops, 1 = MP3 Tags)                    |
+| `-theme T`  | `auto` (OS default), `light` or `dark`                              |
 | `-snapshot png` | Render one frame of the UI headlessly to a PNG and exit (used for testing) |
 
 ## CLI
@@ -101,14 +116,16 @@ Per track, applied independently to cues and loops (only set slots participate):
 
 1. **Reorder** — set items are sorted chronologically and fill slots
    `1, 2, 3, …`; the **latest** item is always placed in **slot 8** (so with
-   5 set items you get slots `1, 2, 3, 4, 8`).
+   5 set items you get slots `1, 2, 3, 4, 8`). A **single** set item is the
+   exception: it goes to **slot 1** — it keeps a custom name or becomes
+   `Cue 1`/`Loop 1` (never `intro`).
 2. **Colors** — every set item gets the standard slot color (see table below),
    alpha 255. Empty slots keep no color.
-3. **Labels** — slot 1 is always named `intro`, slot 8 always `outro`
-   (position-bound, overriding anything else). In middle slots, default labels
-   (`Cue 3`, `Loop 2`) are renamed to match the new slot, and `intro`/`outro`
-   labels that drift into a middle slot are normalized back to `Cue N` /
-   `Loop N`. Genuinely custom labels (`Breakdown`, …) are preserved.
+3. **Labels** — with multiple items, slot 1 is always named `intro` and slot 8
+   always `outro` (position-bound, overriding anything else). In middle slots,
+   default labels (`Cue 3`, `Loop 2`) are renamed to match the new slot, and
+   `intro`/`outro` labels that drift into a middle slot are normalized back to
+   `Cue N` / `Loop N`. Genuinely custom labels (`Breakdown`, …) are preserved.
 4. **`activeOnLoadLoops`** — this column is treated as a slot bitmask
    (bit *i* = slot *i+1*); when loops move, the bits are remapped accordingly.
    Values outside a byte range are left untouched.
@@ -233,8 +250,26 @@ driver is pure Go ([modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite))
 and shirei uses purego for its macOS/Windows backends.
 
 ```sh
-go build -o enginedj5multitool .
+make build        # current platform -> ./enginedj5multitool
+make check        # gofmt check + go vet + tests
+make release      # cross-compile + package all platforms into dist/
+make clean
 ```
+
+`make release` produces, for `darwin/amd64`, `darwin/arm64`, `linux/amd64`,
+`linux/arm64` and `windows/amd64`, an archive named
+`enginedj5multitool-<version>-<os>-<arch>.tar.gz` (`.zip` for Windows)
+containing the binary and this README. The version is injected from
+`git describe` (override with `make release VERSION=v1.2.3`).
+
+## CI / Releases
+
+- **CI** (`.github/workflows/ci.yml`): on every push to `main` and every PR —
+  tests run on Ubuntu, macOS and Windows runners; gofmt is checked; all
+  platforms are cross-compiled and uploaded as artifacts.
+- **Release** (`.github/workflows/release.yml`): pushing a tag `v*` builds all
+  platforms and creates a GitHub release with the archives. It can also be
+  triggered manually via *workflow_dispatch* (artifacts only).
 
 ## Development
 

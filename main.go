@@ -10,6 +10,9 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+// appVersion is overridden at build time via -ldflags "-X main.appVersion=...".
+var appVersion = "dev"
+
 func main() {
 	dbPath := flag.String("db", "m.db", "path to the Engine DJ database (m.db)")
 	filter := flag.String("filter", "", "substring filter on title/artist/album/filename (case-insensitive)")
@@ -17,16 +20,23 @@ func main() {
 	dryRun := flag.Bool("dry-run", false, "with -fix: show what would change without updating the DB")
 	ui := flag.Bool("ui", false, "launch the graphical interface")
 	tool := flag.Int("tool", -1, "with -ui: index of the tool tab to open (0 = Cues & Loops, 1 = MP3 Tags)")
+	theme := flag.String("theme", "auto", "UI theme: auto (OS default), light or dark")
 	snapshot := flag.String("snapshot", "", "render one frame of the UI headlessly to this PNG and exit")
+	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println(appVersion)
+		return
+	}
 
 	// No CLI action flags → run the GUI.
 	if !*fix && *snapshot == "" && !*ui && !flagChanged("filter") {
-		runUI(*dbPath, "", *tool, *filter)
+		runUI(*dbPath, "", *tool, *filter, *theme)
 		return
 	}
 	if *ui || *snapshot != "" {
-		runUI(*dbPath, *snapshot, *tool, *filter)
+		runUI(*dbPath, *snapshot, *tool, *filter, *theme)
 		return
 	}
 

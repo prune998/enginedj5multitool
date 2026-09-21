@@ -361,10 +361,13 @@ func swatch(rgba [4]byte, useColor bool) string {
 }
 
 // slotAssignment returns, for the given chronological sample values (one per
-// set item, in original slot order), the new 0-based slot for each: items
-// sorted ascending fill slots 0..N-2 and the latest always lands on slot 7
-// (position 8).
+// set item, in original slot order), the new 0-based slot for each: a single
+// item goes to slot 0 (position 1); otherwise items sorted ascending fill
+// slots 0..N-2 and the latest always lands on slot 7 (position 8).
 func slotAssignment(samples []float64) []int {
+	if len(samples) == 1 {
+		return []int{0}
+	}
 	idx := make([]int, len(samples))
 	for i := range idx {
 		idx[i] = i
@@ -396,11 +399,19 @@ func isDefaultLabel(kind string, label string, slot int) bool {
 	return label == fmt.Sprintf("%s %d", kind, slot)
 }
 
-// slotLabel applies the labelling convention: slot 1 is "intro" and slot 8 is
-// "outro"; elsewhere default labels (and position-bound "intro"/"outro" that
-// moved to a middle slot) are renamed to "Cue N"/"Loop N" while genuinely
-// custom labels are preserved.
-func slotLabel(kind, label string, oldSlot, newSlot int) string {
+// slotLabel applies the labelling convention: with multiple items, slot 1 is
+// "intro" and slot 8 is "outro"; elsewhere default labels (and position-bound
+// "intro"/"outro" that moved to a middle slot) are renamed to "Cue N"/"Loop N"
+// while genuinely custom labels are preserved. When single is true (only one
+// set item) the item lands on slot 1 and keeps its custom name or becomes
+// "Cue 1"/"Loop 1" — never "intro".
+func slotLabel(kind, label string, oldSlot, newSlot int, single bool) string {
+	if single {
+		if isDefaultLabel(kind, label, oldSlot) || label == "intro" || label == "outro" {
+			return fmt.Sprintf("%s 1", kind)
+		}
+		return label
+	}
 	switch newSlot {
 	case 0:
 		return "intro"
@@ -442,7 +453,7 @@ func fixCues(cues []Cue) ([]Cue, []itemChange, bool) {
 		newSlot := slots[k]
 		moved := newSlot+1 != c.Num
 		recolored := c.RGBA != standardColors[newSlot]
-		newLabel := slotLabel("Cue", c.Label, c.Num, newSlot)
+		newLabel := slotLabel("Cue", c.Label, c.Num, newSlot, len(setIdx) == 1)
 		relabeled := newLabel != c.Label
 		c.Label = newLabel
 		c.Num = newSlot + 1
@@ -494,7 +505,7 @@ func fixLoops(loops []Loop) ([]Loop, []itemChange, map[int]int, bool) {
 		newSlot := slots[k]
 		moved := newSlot+1 != l.Num
 		recolored := l.RGBA != standardColors[newSlot]
-		newLabel := slotLabel("Loop", l.Label, l.Num, newSlot)
+		newLabel := slotLabel("Loop", l.Label, l.Num, newSlot, len(setIdx) == 1)
 		relabeled := newLabel != l.Label
 		l.Label = newLabel
 		perm[l.Num] = newSlot + 1

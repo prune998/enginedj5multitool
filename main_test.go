@@ -256,7 +256,7 @@ func TestSlotAssignment(t *testing.T) {
 		want    []int
 	}{
 		{"ascending fills 1,2 then latest at 8", []float64{10, 20, 30}, []int{0, 1, 7}},
-		{"single item goes to slot 8", []float64{42}, []int{7}},
+		{"single item goes to slot 1", []float64{42}, []int{0}},
 		{"descending input", []float64{30, 20, 10}, []int{7, 1, 0}},
 		{"shuffled", []float64{30, 10, 20}, []int{7, 0, 1}},
 		{"eight items sequential", []float64{1, 2, 3, 4, 5, 6, 7, 8}, []int{0, 1, 2, 3, 4, 5, 6, 7}},
@@ -341,6 +341,47 @@ func TestFixCuesNormalizesMovedIntroOutro(t *testing.T) {
 
 func loopAt(slot int, label string, start, end float64) Loop {
 	return Loop{Num: slot, Label: label, Start: start, End: end, StartSet: true, EndSet: true}
+}
+
+func TestFixCuesSingleCue(t *testing.T) {
+	// A lone default cue moves to slot 1 and becomes "Cue 1".
+	cues := emptyCues()
+	cues[3] = cueAt(4, "Cue 4", 2000)
+	cues[3].RGBA = defCueColor
+
+	out, changes, changed := fixCues(cues)
+	if !changed {
+		t.Fatal("expected changed = true")
+	}
+	if len(changes) != 1 || changes[0].newSlot != 1 || changes[0].oldSlot != 4 {
+		t.Fatalf("changes = %+v, want single move 4 → 1", changes)
+	}
+	want := Cue{Num: 1, Label: "Cue 1", Sample: 2000, RGBA: standardColors[0]}
+	if out[0] != want {
+		t.Errorf("slot 1 = %+v, want %+v", out[0], want)
+	}
+	for i := 1; i < 8; i++ {
+		if out[i].Sample != -1 || out[i].Label != "" {
+			t.Errorf("slot %d: expected empty, got %+v", i+1, out[i])
+		}
+	}
+
+	// A lone custom-labelled cue keeps its name.
+	cues = emptyCues()
+	cues[7] = cueAt(8, "Breakdown", 3000)
+	out, _, _ = fixCues(cues)
+	want = Cue{Num: 1, Label: "Breakdown", Sample: 3000, RGBA: standardColors[0]}
+	if out[0] != want {
+		t.Errorf("slot 1 = %+v, want %+v (custom label kept)", out[0], want)
+	}
+
+	// Already-clean single cue: no change.
+	cues = emptyCues()
+	cues[0] = Cue{Num: 1, Label: "Cue 1", Sample: 100, RGBA: standardColors[0]}
+	_, _, changed = fixCues(cues)
+	if changed {
+		t.Error("single cue already at slot 1 as 'Cue 1' should not change")
+	}
 }
 
 func TestFixLoops(t *testing.T) {
@@ -446,25 +487,33 @@ func TestSlotLabel(t *testing.T) {
 	cases := []struct {
 		kind, label string
 		old, new    int
+		single      bool
 		want        string
 	}{
-		{"Cue", "Cue 1", 1, 0, "intro"},
-		{"Loop", "Loop 2", 2, 0, "intro"},
-		{"Cue", "Cue 4", 4, 7, "outro"},
-		{"Loop", "Loop 8", 8, 7, "outro"},
-		{"Cue", "Cue 1", 1, 1, "Cue 2"},
-		{"Loop", "Loop 8", 8, 3, "Loop 4"},
-		{"Cue", "intro", 3, 1, "Cue 2"},
-		{"Loop", "outro", 8, 3, "Loop 4"},
-		{"Cue", "My Label", 3, 4, "My Label"},
-		{"Loop", "Breakdown", 5, 6, "Breakdown"},
-		{"Cue", "Cue 2", 2, 0, "intro"},
+		{"Cue", "Cue 1", 1, 0, false, "intro"},
+		{"Loop", "Loop 2", 2, 0, false, "intro"},
+		{"Cue", "Cue 4", 4, 7, false, "outro"},
+		{"Loop", "Loop 8", 8, 7, false, "outro"},
+		{"Cue", "Cue 1", 1, 1, false, "Cue 2"},
+		{"Loop", "Loop 8", 8, 3, false, "Loop 4"},
+		{"Cue", "intro", 3, 1, false, "Cue 2"},
+		{"Loop", "outro", 8, 3, false, "Loop 4"},
+		{"Cue", "My Label", 3, 4, false, "My Label"},
+		{"Loop", "Breakdown", 5, 6, false, "Breakdown"},
+		{"Cue", "Cue 2", 2, 0, false, "intro"},
+		// single-item rules: slot 1, custom name kept, defaults become N 1
+		{"Cue", "Cue 4", 4, 0, true, "Cue 1"},
+		{"Loop", "Loop 8", 8, 0, true, "Loop 1"},
+		{"Cue", "intro", 1, 0, true, "Cue 1"},
+		{"Cue", "outro", 8, 0, true, "Cue 1"},
+		{"Loop", "Breakdown", 5, 0, true, "Breakdown"},
+		{"Cue", "My Label", 3, 0, true, "My Label"},
 	}
 	for _, tc := range cases {
-		got := slotLabel(tc.kind, tc.label, tc.old, tc.new)
+		got := slotLabel(tc.kind, tc.label, tc.old, tc.new, tc.single)
 		if got != tc.want {
-			t.Errorf("slotLabel(%q, %q, old=%d, new=%d) = %q, want %q",
-				tc.kind, tc.label, tc.old, tc.new, got, tc.want)
+			t.Errorf("slotLabel(%q, %q, old=%d, new=%d, single=%v) = %q, want %q",
+				tc.kind, tc.label, tc.old, tc.new, tc.single, got, tc.want)
 		}
 	}
 }

@@ -26,14 +26,18 @@ func (t *CuesTool) Icon() IconGlyph { return SymChapters }
 func (t *CuesTool) View(a *App) {
 	t.ensureLoaded(a)
 
-	Container(Attrs(Row, Grow(1), Expand, Gap(10)), func() {
-		// Left: track browser.
-		Container(Attrs(Grow(1), Expand, Clip, Gap(8)), func() {
+	Container(Attrs(Row, Grow(1), Expand), func() {
+		a.captureSplitRow()
+
+		// Left: track browser, resizable via the splitter.
+		Container(Attrs(FixWidth(a.splitWidth()), Expand, Clip, Gap(8)), func() {
 			a.BrowserPanel(nil)
 		})
 
-		// Right: detail panel.
-		Container(Attrs(FixWidth(480), Expand, Clip, Gap(8)), func() {
+		a.Splitter()
+
+		// Right: detail panel fills the rest.
+		Container(Attrs(Grow(1), Expand, Clip, Pad2(0, 10), Gap(8)), func() {
 			t.DetailPanel(a)
 		})
 	})
@@ -68,14 +72,14 @@ func errString(err error) string {
 // DetailPanel shows the cue/loop layout of the selected track plus the fix
 // controls.
 func (t *CuesTool) DetailPanel(a *App) {
-	Label("Cues & Loops", FontSize(18), FontWeight(WeightBold))
+	a.L("Cues & Loops", FontSize(18), FontWeight(WeightBold))
 
 	if a.Selected == 0 {
-		Label("Select a track on the left.", TextColor(220, 8, 40, 1))
+		a.L("Select a track on the left.", TextColorVec(a.pal().textDim))
 		return
 	}
 	if t.loadErr != "" {
-		Label("Error: "+t.loadErr, TextColor(0, 70, 40, 1))
+		a.L("Error: "+t.loadErr, TextColor(0, 70, 40, 1))
 		return
 	}
 	if t.detail == nil {
@@ -83,17 +87,17 @@ func (t *CuesTool) DetailPanel(a *App) {
 	}
 	d := t.detail
 
-	Label(fmt.Sprintf("#%d  %s — %s", t.rec.ID, t.rec.Artist, t.rec.Title),
+	a.L(fmt.Sprintf("#%d  %s — %s", t.rec.ID, t.rec.Artist, t.rec.Title),
 		FontWeight(WeightBold))
-	Label(fmt.Sprintf("%.0f Hz    %.1f BPM    %s", d.SampleRate, t.rec.BPM, formatDuration(t.rec.Length)),
-		FontSize(12), TextColor(220, 8, 40, 1))
+	a.L(fmt.Sprintf("%.0f Hz    %.1f BPM    %s", d.SampleRate, t.rec.BPM, formatDuration(t.rec.Length)),
+		FontSize(12), TextColorVec(a.pal().textDim))
 
 	cueStatus, loopStatus := orderStatus(d)
-	t.slotTable(fmt.Sprintf("Cues — %d set (%s)", countSetCues(d), cueStatus), cueRows(d), d.SampleRate)
-	t.slotTable(fmt.Sprintf("Loops — %d set (%s)", countSetLoops(d), loopStatus), loopRows(d), d.SampleRate)
+	t.slotTable(a, fmt.Sprintf("Cues — %d set (%s)", countSetCues(d), cueStatus), cueRows(d), d.SampleRate)
+	t.slotTable(a, fmt.Sprintf("Loops — %d set (%s)", countSetLoops(d), loopStatus), loopRows(d), d.SampleRate)
 
 	t.ActionsPanel(a)
-	t.PreviewPanel()
+	t.PreviewPanel(a)
 }
 
 type slotRow struct {
@@ -187,42 +191,36 @@ func orDefault(s, def string) string {
 }
 
 // slotTable renders the 8 slots of cues or loops with colour swatches.
-func (t *CuesTool) slotTable(title string, rows []slotRow, sampleRate float64) {
-	Label(title, FontWeight(WeightBold), FontSize(14))
+func (t *CuesTool) slotTable(a *App, title string, rows []slotRow, sampleRate float64) {
+	a.L(title, FontWeight(WeightBold), FontSize(14))
+	p := a.pal()
 	Container(Attrs(Gap(2)), func() {
 		for _, r := range rows {
 			row := r
-			Container(Attrs(Row, CrossMid, Pad2(1, 6), Corners(4)), func() {
-				if !row.empty {
+			Container(Attrs(Row, CrossMid, Gap(6), Pad2(1, 6), Corners(4)), func() {
+				if row.empty {
+					Container(Attrs(FixSize(18, 14), Corners(3), BackgroundVec(p.swatchEmpty)), func() {})
+					a.L(fmt.Sprintf("%d", row.num), FontSize(12), TextColorVec(p.textDim))
+					Container(Attrs(FixWidth(130)), func() {
+						a.L("(empty)", FontSize(12), TextColorVec(p.textDim))
+					})
+					Container(Attrs(Expand), func() {})
+				} else {
 					h, s, l := rgbToHSL(row.rgba)
 					Container(Attrs(FixSize(18, 14), Corners(3), Background(h, s, l, 1)), func() {})
-				} else {
-					Container(Attrs(FixSize(18, 14), Corners(3), Background(0, 0, 88, 1)), func() {})
-				}
-				Container(Attrs(FixWidth(46)), func() {
-					if row.empty {
-						Label(fmt.Sprintf("%d", row.num), TextColor(0, 0, 65, 1), FontSize(12))
-					} else {
-						Label(fmt.Sprintf("%d", row.num), FontWeight(WeightBold), FontSize(12))
-					}
-				})
-				Container(Attrs(FixWidth(130)), func() {
-					if row.empty {
-						Label("(empty)", TextColor(0, 0, 65, 1), FontSize(12))
-					} else {
-						Label(row.label, FontSize(12))
-					}
-				})
-				Container(Attrs(Expand), func() {
-					when := row.when
-					if row.end != "" {
-						when = when + " → " + row.end
-					}
-					Label(when, FontSize(12))
-				})
-				if !row.empty {
-					Container(Attrs(FixWidth(64)), func() {
-						Label(hexColor(row.rgba), FontSize(11), TextColor(220, 8, 40, 1))
+					a.L(fmt.Sprintf("%d", row.num), FontSize(12), FontWeight(WeightBold))
+					Container(Attrs(FixWidth(130)), func() {
+						a.L(row.label, FontSize(12))
+					})
+					Container(Attrs(Expand), func() {
+						when := row.when
+						if row.end != "" {
+							when = when + " → " + row.end
+						}
+						a.L(when, FontSize(12))
+					})
+					Container(Attrs(FixWidth(70)), func() {
+						a.L(hexColor(row.rgba), FontSize(11), TextColorVec(p.textDim))
 					})
 				}
 			})
@@ -233,11 +231,11 @@ func (t *CuesTool) slotTable(title string, rows []slotRow, sampleRate float64) {
 // ActionsPanel offers the fix operations for the selected track and for all
 // filtered tracks.
 func (t *CuesTool) ActionsPanel(a *App) {
-	Label("Fix", FontWeight(WeightBold), FontSize(14))
+	a.L("Fix", FontWeight(WeightBold), FontSize(14))
 	Container(Attrs(Row, CrossMid, Gap(10)), func() {
 		CheckBox(&t.dryRun, "Dry run")
-		Label("Reorders chronologically, latest → slot 8, standard colours, intro/outro labels.",
-			FontSize(11), TextColor(220, 8, 40, 1))
+		a.L("Chronological order; lone cue/loop → slot 1, latest of many → slot 8; standard colours; intro/outro labels.",
+			FontSize(11), TextColorVec(a.pal().textDim))
 	})
 	Container(Attrs(Row, CrossMid, Gap(10), Pad2(4, 0)), func() {
 		enabled := a.lib != nil && a.Selected != 0
@@ -326,11 +324,11 @@ func summaryChanges(res *FixResult) string {
 }
 
 // PreviewPanel shows the last dry-run result inline.
-func (t *CuesTool) PreviewPanel() {
+func (t *CuesTool) PreviewPanel(a *App) {
 	if t.preview == nil || t.lastPreview != t.lastSel {
 		return
 	}
-	Label("Dry-run preview", FontWeight(WeightBold), FontSize(14))
+	a.L("Dry-run preview", FontWeight(WeightBold), FontSize(14))
 	for _, section := range []struct {
 		what    string
 		changes []itemChange
@@ -341,7 +339,7 @@ func (t *CuesTool) PreviewPanel() {
 		if len(section.changes) == 0 {
 			continue
 		}
-		Label(section.what, FontSize(12), TextColor(220, 8, 40, 1))
+		a.L(section.what, FontSize(12), TextColorVec(a.pal().textDim))
 		for _, ch := range section.changes {
 			tag := changeTags(ch)
 			line := fmt.Sprintf("slot %d ← %d   %s", ch.newSlot, ch.oldSlot, ch.when)
@@ -351,7 +349,7 @@ func (t *CuesTool) PreviewPanel() {
 			if tag != "" {
 				line += "   (" + tag + ")   " + ch.label
 			}
-			Label(line, FontSize(12))
+			a.L(line, FontSize(12))
 		}
 	}
 }

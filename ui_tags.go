@@ -3,13 +3,15 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	. "go.hasen.dev/shirei"
 	. "go.hasen.dev/shirei/widgets"
 )
 
 // TagsTool is a manual MP3 (ID3v2) tag editor for the selected track. It can
-// also sync the edited metadata back into the Engine DJ Track table.
+// also sync the edited metadata back into the Engine DJ Track table. #tags in
+// the comment are rendered as interactive bubbles.
 type TagsTool struct {
 	mp3Only bool
 	lastSel int64
@@ -21,6 +23,7 @@ type TagsTool struct {
 	readErr string
 
 	alsoDB bool // also update the Engine DJ Track table
+	newTag string
 	saved  bool
 }
 
@@ -28,17 +31,21 @@ func (t *TagsTool) Name() string    { return "MP3 Tags" }
 func (t *TagsTool) Icon() IconGlyph { return SymEdit }
 
 func (t *TagsTool) View(a *App) {
-	Container(Attrs(Row, Grow(1), Expand, Gap(10)), func() {
-		Container(Attrs(Grow(1), Expand, Clip, Gap(8)), func() {
+	Container(Attrs(Row, Grow(1), Expand), func() {
+		a.captureSplitRow()
+
+		Container(Attrs(FixWidth(a.splitWidth()), Expand, Clip, Gap(8)), func() {
 			extra := &TableColumn[TrackRecord]{
 				Label: "Type", Width: 60,
-				Cell: func(r TrackRecord) { Label(upper(r.FileType), FontSize(12)) },
+				Cell: func(r TrackRecord) { a.L(upper(r.FileType), FontSize(12)) },
 				Less: func(a, b TrackRecord) bool { return a.FileType < b.FileType },
 			}
 			a.BrowserPanel(extra)
 		})
 
-		Container(Attrs(FixWidth(500), Expand, Clip, Gap(8)), func() {
+		a.Splitter()
+
+		Container(Attrs(Grow(1), Expand, Clip, Pad2(0, 10), Gap(8)), func() {
 			t.EditorPanel(a)
 		})
 	})
@@ -55,11 +62,11 @@ func upper(s string) string {
 }
 
 func (t *TagsTool) EditorPanel(a *App) {
-	Label("MP3 Tags", FontSize(18), FontWeight(WeightBold))
+	a.L("MP3 Tags", FontSize(18), FontWeight(WeightBold))
 
 	rec, ok := a.SelectedTrack()
 	if !ok || a.Selected == 0 {
-		Label("Select a track on the left.", TextColor(220, 8, 40, 1))
+		a.L("Select a track on the left.", TextColorVec(a.pal().textDim))
 		return
 	}
 	t.ensureLoaded(a, rec)
@@ -67,27 +74,28 @@ func (t *TagsTool) EditorPanel(a *App) {
 	// File info
 	Container(Attrs(Gap(2), Pad2(4, 0)), func() {
 		Container(Attrs(Row, CrossMid, Gap(6)), func() {
-			Icon(SymAudio, FontSize(13), TextColor(220, 8, 40, 1))
-			Label(fmt.Sprintf("#%d  %s — %s", rec.ID, rec.Artist, rec.Title), FontWeight(WeightBold))
+			Icon(SymAudio, FontSize(13), TextColorVec(a.pal().textDim))
+			a.L(fmt.Sprintf("#%d  %s — %s", rec.ID, rec.Artist, rec.Title), FontWeight(WeightBold))
 		})
 		if t.pathErr != "" {
-			Label(t.pathErr, FontSize(11), TextColor(0, 70, 40, 1))
+			a.L(t.pathErr, FontSize(11), TextColor(0, 70, 40, 1))
 		} else {
-			Label(t.path, FontSize(11), TextColor(220, 8, 40, 1))
+			a.L(t.path, FontSize(11), TextColorVec(a.pal().textDim))
 		}
 	})
 
 	if t.readErr != "" {
-		Label("Error: "+t.readErr, TextColor(0, 70, 40, 1))
+		a.L("Error: "+t.readErr, TextColor(0, 70, 40, 1))
 		return
 	}
 	if !IsMP3(rec) {
-		Label("Not an MP3 file — tag editing supports MP3 (ID3v2) only.",
+		a.L("Not an MP3 file — tag editing supports MP3 (ID3v2) only.",
 			TextColor(40, 70, 40, 1))
 		return
 	}
 
-	t.Form()
+	t.Form(a)
+	t.TagBubbles(a)
 	t.SaveRow(a, rec)
 }
 
@@ -115,61 +123,175 @@ func (t *TagsTool) ensureLoaded(a *App, rec TrackRecord) {
 	t.tags = tags
 }
 
-// Form renders the editable tag fields.
-func (t *TagsTool) Form() {
+// Form renders the editable tag fields. Title and Artist span the full width
+// of the panel; the rest share rows.
+func (t *TagsTool) Form(a *App) {
 	Container(Attrs(Gap(6)), func() {
-		fieldRow("Title", &t.tags.Title)
-		fieldRow("Artist", &t.tags.Artist)
-		Container(Attrs(Row, Gap(8)), func() {
-			Container(Attrs(Expand), func() {
-				Label("Album", FontSize(11), TextColor(220, 8, 40, 1))
-				TextInput(&t.tags.Album)
-			})
-			Container(Attrs(Expand), func() {
-				Label("Album artist", FontSize(11), TextColor(220, 8, 40, 1))
-				TextInput(&t.tags.AlbumArtist)
-			})
-		})
-		Container(Attrs(Row, Gap(8)), func() {
-			Container(Attrs(Expand), func() {
-				Label("Genre", FontSize(11), TextColor(220, 8, 40, 1))
-				TextInput(&t.tags.Genre)
-			})
-			Container(Attrs(FixWidth(110)), func() {
-				Label("Year", FontSize(11), TextColor(220, 8, 40, 1))
-				TextInput(&t.tags.Year)
-			})
-			Container(Attrs(FixWidth(110)), func() {
-				Label("Track #", FontSize(11), TextColor(220, 8, 40, 1))
-				TextInput(&t.tags.Track)
-			})
-			Container(Attrs(FixWidth(110)), func() {
-				Label("Disc #", FontSize(11), TextColor(220, 8, 40, 1))
-				TextInput(&t.tags.Disc)
-			})
-		})
-		Container(Attrs(Row, Gap(8)), func() {
-			Container(Attrs(Expand), func() {
-				Label("Composer", FontSize(11), TextColor(220, 8, 40, 1))
-				TextInput(&t.tags.Composer)
-			})
-			Container(Attrs(FixWidth(110)), func() {
-				Label("BPM", FontSize(11), TextColor(220, 8, 40, 1))
-				TextInput(&t.tags.BPM)
-			})
-		})
-		Container(Attrs(Gap(2)), func() {
-			Label("Comment", FontSize(11), TextColor(220, 8, 40, 1))
+		t.fieldFull(a, "Title", &t.tags.Title)
+		t.fieldFull(a, "Artist", &t.tags.Artist)
+		t.row(a,
+			t.field(a, "Album", &t.tags.Album),
+			t.field(a, "Album artist", &t.tags.AlbumArtist),
+		)
+		t.row(a,
+			t.field(a, "Genre", &t.tags.Genre),
+			t.fieldFix(a, "Year", &t.tags.Year, 110),
+			t.fieldFix(a, "Track #", &t.tags.Track, 110),
+			t.fieldFix(a, "Disc #", &t.tags.Disc, 110),
+		)
+		t.row(a,
+			t.field(a, "Composer", &t.tags.Composer),
+			t.fieldFix(a, "BPM", &t.tags.BPM, 110),
+		)
+		Container(Attrs(Gap(2), Expand), func() {
+			a.L("Comment", FontSize(11), TextColorVec(a.pal().textDim))
 			TextArea(&t.tags.Comment)
 		})
 	})
 }
 
-func fieldRow(label string, buf *string) {
-	Container(Attrs(Gap(2)), func() {
-		Label(label, FontSize(11), TextColor(220, 8, 40, 1))
+// row lays out field containers horizontally, filling the panel width.
+func (t *TagsTool) row(a *App, fields ...func()) {
+	Container(Attrs(Row, Expand, Gap(8)), func() {
+		for _, f := range fields {
+			f()
+		}
+	})
+}
+
+// smallInput is a TextInputAttrs with a reduced minimum width while keeping
+// the default single-line behaviour.
+func smallInput(minWidth float32) TextInputAttrs {
+	at := DefaultTextInputAttrs()
+	at.MinWidth = minWidth
+	return at
+}
+
+// field is a label+input pair that grows to share the row width.
+func (t *TagsTool) field(a *App, label string, buf *string) func() {
+	return func() {
+		Container(Attrs(Grow(1), Gap(2)), func() {
+			a.L(label, FontSize(11), TextColorVec(a.pal().textDim))
+			TextInputExt(buf, smallInput(40))
+		})
+	}
+}
+
+// fieldFix is a label+input pair that shares the row width but keeps a
+// readable minimum.
+func (t *TagsTool) fieldFix(a *App, label string, buf *string, w float32) func() {
+	return func() {
+		Container(Attrs(Grow(1), Gap(2)), func() {
+			a.L(label, FontSize(11), TextColorVec(a.pal().textDim))
+			TextInputExt(buf, smallInput(w/2))
+		})
+	}
+}
+
+// fieldFull renders a label + input pair spanning the full panel width.
+func (t *TagsTool) fieldFull(a *App, label string, buf *string) {
+	Container(Attrs(Expand, Gap(2)), func() {
+		a.L(label, FontSize(11), TextColorVec(a.pal().textDim))
 		TextInput(buf)
 	})
+}
+
+// parseHashTags extracts the unique #tags of a comment, in order of
+// appearance (without the leading '#'). Trailing punctuation is stripped, so
+// "#pop," yields "pop".
+func parseHashTags(comment string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, tok := range strings.Fields(comment) {
+		if len(tok) < 2 || tok[0] != '#' {
+			continue
+		}
+		name := strings.TrimLeft(tok[1:], "#")
+		name = strings.TrimRight(name, ",.!?;:…")
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		out = append(out, name)
+	}
+	return out
+}
+
+// removeTag rebuilds a comment without the given #tag (matching tokens with
+// or without trailing punctuation).
+func removeTag(comment, name string) string {
+	var kept []string
+	for _, tok := range strings.Fields(comment) {
+		if strings.TrimRight(strings.TrimLeft(tok, "#"), ",.!?;:…") == name {
+			continue
+		}
+		kept = append(kept, tok)
+	}
+	return strings.Join(kept, " ")
+}
+
+// addTag appends a #tag to the comment (no duplicates).
+func addTag(comment, name string) string {
+	if strings.Contains(" "+comment+" ", " #"+strings.TrimSpace(name)+" ") {
+		return comment
+	}
+	name = strings.TrimSpace(name)
+	if strings.ContainsAny(name, " \t") {
+		return comment
+	}
+	if strings.TrimSpace(comment) == "" {
+		return "#" + name
+	}
+	return strings.TrimSpace(comment) + " #" + name
+}
+
+// TagBubbles renders the comment's #tags as colored bubbles: click one to
+// remove it from the comment, or add a new one below.
+func (t *TagsTool) TagBubbles(a *App) {
+	tags := parseHashTags(t.tags.Comment)
+	if len(tags) == 0 && t.newTag == "" && !t.saved {
+		// still render the add row
+	}
+	p := a.pal()
+	a.L("Tags", FontSize(11), TextColorVec(p.textDim))
+	Container(Attrs(Row, Wrap, Gap(6), Pad2(2, 0)), func() {
+		for _, name := range tags {
+			n := name
+			hue := tagHue(n)
+			Container(Attrs(Row, CrossMid, Gap(4), Pad2(2, 9), Corners(10),
+				Background(hue, 45, lightnessFor(a), 1), Gap(2)), func() {
+				if IsHovered() {
+					ModAttrs(Background(hue, 55, hoverLightnessFor(a), 1))
+				}
+				if PressAction() {
+					t.tags.Comment = removeTag(t.tags.Comment, n)
+				}
+				a.L("#"+n, FontSize(12), TextColorVec(p.bubbleInk))
+				a.L("×", FontSize(12), TextColorVec(p.bubbleInk))
+			})
+		}
+		Container(Attrs(FixWidth(130)), func() {
+			TextInput(&t.newTag)
+		})
+		if CtrlButton(SymIPlus, "Add", strings.TrimSpace(t.newTag) != "") {
+			t.tags.Comment = addTag(t.tags.Comment, strings.TrimSpace(strings.TrimPrefix(t.newTag, "#")))
+			t.newTag = ""
+		}
+	})
+}
+
+func lightnessFor(a *App) float32 {
+	if a.dark() {
+		return 32
+	}
+	return 80
+}
+
+func hoverLightnessFor(a *App) float32 {
+	if a.dark() {
+		return 40
+	}
+	return 72
 }
 
 // SaveRow shows the save controls and DB-sync toggle.
@@ -180,7 +302,7 @@ func (t *TagsTool) SaveRow(a *App, rec TrackRecord) {
 		}
 		CheckBox(&t.alsoDB, "Also update Engine DJ database")
 		if t.saved {
-			Label("Saved ✓", TextColor(140, 45, 34, 1), FontSize(12))
+			a.L("Saved ✓", TextColor(140, 45, 34, 1), FontSize(12))
 		}
 	})
 }
