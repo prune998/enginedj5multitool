@@ -10,6 +10,8 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
+
+	id3v2 "github.com/bogem/id3v2/v2"
 )
 
 // jpegFixture is a minimal byte sequence that sniffs as JPEG (not decodable).
@@ -65,6 +67,19 @@ func TestEmbeddedArtRoundTrip(t *testing.T) {
 	if got == nil || got.MIME != "image/jpeg" || !bytes.Equal(got.Data, jpegFixture) {
 		t.Fatalf("embedded art mismatch: %+v", got)
 	}
+	// The APIC frame carries the standard description.
+	tag, err := id3v2.Open(p, id3v2.Options{Parse: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	frames := tag.GetFrames("APIC")
+	if len(frames) != 1 {
+		t.Fatalf("APIC frames = %d, want 1", len(frames))
+	}
+	if pf := frames[0].(id3v2.PictureFrame); pf.Description != "Album cover" || pf.PictureType != 3 {
+		t.Errorf("picture frame = description %q, type %d; want \"Album cover\", type 3", pf.Description, pf.PictureType)
+	}
+	tag.Close()
 	tags, err := ReadMediaTags(p)
 	if err != nil {
 		t.Fatal(err)

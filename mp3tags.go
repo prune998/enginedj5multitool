@@ -210,7 +210,7 @@ func applyArt(tag *id3v2.Tag, art *MediaArt) {
 		Encoding:    tag.DefaultEncoding(),
 		MimeType:    art.MIME,
 		PictureType: 3, // front cover
-		Description: "",
+		Description: "Album cover",
 		Picture:     art.Data,
 	})
 }

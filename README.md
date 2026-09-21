@@ -27,8 +27,10 @@ It can:
 ```
 
 The window has a top bar (library path, music root override, theme selector,
-reload), a sidebar with the tools, and a shared track browser (search box +
-sortable, virtualized table; click a row to select it):
+reload), a sidebar with the tools, and a shared track browser (search box —
+**Return** runs the search — plus a sortable, virtualized table; click a row
+to select it, or navigate with the **↑/↓ arrow keys** — the detail panel and
+the list scroll follow along):
 
 - **Cues & Loops** — shows the 8 cue and 8 loop slots of the selected track
   with color swatches, timestamps and order status. `Dry run` previews the fix
@@ -37,7 +39,7 @@ sortable, virtualized table; click a row to select it):
 - **MP3 Tags** — shows the embedded cover art above the form and loads the
   ID3v2 tags of the selected MP3 from disk into an editable form (title,
   artist, album, album artist, genre, year, track #, disc #, composer, BPM,
-  comment). `Save tags to file` rewrites the ID3v2 tag in place (preserving
+  comment). `Save changes` rewrites the ID3v2 tag in place (preserving
   the tag version, album art and all untouched frames; tagless files get a new
   tag). With *Also update Engine DJ database* checked, the matching `Track`
   row is updated so the library metadata stays in sync.
@@ -45,7 +47,7 @@ sortable, virtualized table; click a row to select it):
   it), fetch one from **MusicBrainz** (via the Cover Art Archive, no key
   needed) or **Discogs** (requires a personal access token from
   discogs.com → Settings → Developers). The downloaded art is previewed and
-  embedded into the file when you press *Save tags to file*.
+  embedded into the file when you press *Save changes*.
 
 Other UI features:
 
@@ -267,6 +269,26 @@ make clean
 `enginedj5multitool-<version>-<os>-<arch>.tar.gz` (`.zip` for Windows)
 containing the binary and this README. The version is injected from
 `git describe` (override with `make release VERSION=v1.2.3`).
+
+## Configuration
+
+On first run the app creates `config.yaml` in the per-OS user config
+directory (`~/Library/Application Support/enginedj5multitool/` on macOS,
+`~/.config/enginedj5multitool/` on Linux, `%AppData%\enginedj5multitool` on
+Windows — override with the `ENGINDJ5_CONFIG_DIR` env var):
+
+```yaml
+library: m.db            # default Engine DJ database path
+music_root: ""           # optional root used to resolve relative track paths
+theme: auto              # auto | light | dark
+tool: 0                  # tool tab opened at startup
+browser_width: 560       # track list width
+discogs_token: ""        # personal access token for artwork search
+```
+
+Command-line flags override the file's values. Settings you change in the UI
+(theme, tool tab, browser width, Discogs token, last library) are written back
+on exit — unless the file was malformed, in which case it is never touched.
 
 ## CI / Releases
 

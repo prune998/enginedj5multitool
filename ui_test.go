@@ -57,6 +57,73 @@ func buildTestLibrary(t *testing.T) string {
 	return path
 }
 
+// TestDriveFilterReturnKey focuses the filter box, types a query and presses
+// Return: the search must run without touching the Search button.
+func TestDriveFilterReturnKey(t *testing.T) {
+	InitFontSubsystem()
+	ResetInputSession()
+	GetHost().WindowSize = Vec2{1180, 740}
+
+	a := NewApp(buildTestLibrary(t))
+	if a.TrackCount != 2 {
+		t.Fatalf("expected 2 unfiltered tracks, got %d", a.TrackCount)
+	}
+
+	port, err := drive.FreePort()
+	if err != nil {
+		t.Fatal(err)
+	}
+	AcceptInputCommands(port)
+
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				RunFrameFn(a.RootView)
+				time.Sleep(8 * time.Millisecond)
+			}
+		}
+	}()
+	defer func() {
+		close(stop)
+		wg.Wait()
+		a.lib.Close()
+	}()
+
+	time.Sleep(60 * time.Millisecond)
+
+	// Focus the filter box and type the query.
+	if _, err := drive.ClickOne(port, "filter-input"); err != nil {
+		t.Fatalf("click filter-input: %v", err)
+	}
+	time.Sleep(40 * time.Millisecond)
+	if err := drive.Text(port, "Emotion"); err != nil {
+		t.Fatalf("type query: %v", err)
+	}
+	time.Sleep(60 * time.Millisecond)
+	if a.Filter != "" {
+		t.Fatalf("typing must not auto-search: a.Filter = %q", a.Filter)
+	}
+
+	// Return runs the search.
+	if err := drive.Key(port, "return"); err != nil {
+		t.Fatalf("key return: %v", err)
+	}
+	time.Sleep(80 * time.Millisecond)
+	if a.Filter != "Emotion" {
+		t.Fatalf("after Return: a.Filter = %q, want \"Emotion\"", a.Filter)
+	}
+	if a.TrackCount != 1 {
+		t.Errorf("after Return: a.TrackCount = %d, want 1", a.TrackCount)
+	}
+}
+
 // TestDriveTrackSelection clicks rows in the track browser via shirei's drive
 // harness and verifies the selection updates and the tools follow along.
 func TestDriveTrackSelection(t *testing.T) {
@@ -122,6 +189,42 @@ func TestDriveTrackSelection(t *testing.T) {
 	}
 	if cues.lastSel != 5 || cues.rec.ID != 5 {
 		t.Errorf("cues tool did not follow selection: lastSel=%d rec=%d", cues.lastSel, cues.rec.ID)
+	}
+
+	// Arrow keys navigate the list in display (artist) order:
+	// Alex Metric (7) sorts before Purple Disco Machine (5), so from track-5
+	// "up" selects track-7, "down" goes back, and a second "up" clamps at the
+	// first row.
+	if err := drive.Key(port, "up"); err != nil {
+		t.Fatalf("key up: %v", err)
+	}
+	time.Sleep(40 * time.Millisecond)
+	if a.Selected != 7 {
+		t.Fatalf("after arrow-up: a.Selected = %d, want 7", a.Selected)
+	}
+	if err := drive.Key(port, "down"); err != nil {
+		t.Fatalf("key down: %v", err)
+	}
+	time.Sleep(40 * time.Millisecond)
+	if a.Selected != 5 {
+		t.Fatalf("after arrow-down: a.Selected = %d, want 5", a.Selected)
+	}
+	if a.listScroll < 0 {
+		t.Errorf("listScroll = %v, want >= 0 after navigation", a.listScroll)
+	}
+	if err := drive.Key(port, "up"); err != nil {
+		t.Fatalf("key up: %v", err)
+	}
+	time.Sleep(40 * time.Millisecond)
+	if a.Selected != 7 {
+		t.Fatalf("after arrow-up: a.Selected = %d, want 7", a.Selected)
+	}
+	if err := drive.Key(port, "up"); err != nil {
+		t.Fatalf("key up at first row: %v", err)
+	}
+	time.Sleep(40 * time.Millisecond)
+	if a.Selected != 7 {
+		t.Fatalf("arrow-up past the first row moved selection: a.Selected = %d, want 7", a.Selected)
 	}
 }
 

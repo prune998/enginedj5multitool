@@ -14,16 +14,27 @@ import (
 var appVersion = "dev"
 
 func main() {
-	dbPath := flag.String("db", "m.db", "path to the Engine DJ database (m.db)")
+	lc := LoadOrCreateConfig()
+	if lc.Err != nil {
+		fmt.Fprintf(os.Stderr, "warning: %v\n", lc.Err)
+	}
+
+	dbPath := flag.String("db", lc.Library, "path to the Engine DJ database (m.db)")
 	filter := flag.String("filter", "", "substring filter on title/artist/album/filename (case-insensitive)")
 	fix := flag.Bool("fix", false, "reorder cues/loops (chronological, latest at slot 8) and apply standard slot colours")
 	dryRun := flag.Bool("dry-run", false, "with -fix: show what would change without updating the DB")
 	ui := flag.Bool("ui", false, "launch the graphical interface")
-	tool := flag.Int("tool", -1, "with -ui: index of the tool tab to open (0 = Cues & Loops, 1 = MP3 Tags)")
-	theme := flag.String("theme", "auto", "UI theme: auto (OS default), light or dark")
+	tool := flag.Int("tool", lc.Tool, "with -ui: index of the tool tab to open (0 = Cues & Loops, 1 = MP3 Tags)")
+	theme := flag.String("theme", lc.Theme, "UI theme: auto (OS default), light or dark")
 	snapshot := flag.String("snapshot", "", "render one frame of the UI headlessly to this PNG and exit")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
+
+	// Config values became the flag defaults; merge back so the UI and the
+	// persisted settings see the effective values.
+	lc.Library = *dbPath
+	lc.Theme = *theme
+	lc.Tool = *tool
 
 	if *showVersion {
 		fmt.Println(appVersion)
@@ -32,11 +43,11 @@ func main() {
 
 	// No CLI action flags → run the GUI.
 	if !*fix && *snapshot == "" && !*ui && !flagChanged("filter") {
-		runUI(*dbPath, "", *tool, *filter, *theme)
+		runUI(lc, "", *filter)
 		return
 	}
 	if *ui || *snapshot != "" {
-		runUI(*dbPath, *snapshot, *tool, *filter, *theme)
+		runUI(lc, *snapshot, *filter)
 		return
 	}
 

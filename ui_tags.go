@@ -532,7 +532,7 @@ func sortCommentTags(comment string) string {
 // SaveRow shows the save controls and DB-sync toggle.
 func (t *TagsTool) SaveRow(a *App, rec TrackRecord) {
 	Container(Attrs(Row, CrossMid, Gap(10), Pad2(6, 0)), func() {
-		if CtrlButton(SymITick, "Save tags to file", a.lib != nil && t.pathErr == "") {
+		if CtrlButton(SymITick, "Save changes", a.lib != nil && t.pathErr == "") {
 			t.Save(a, rec)
 		}
 		CheckBox(&t.alsoDB, "Also update Engine DJ database")

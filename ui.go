@@ -3,7 +3,9 @@ package main
 import (
 	"fmt"
 	"os"
+	"sort"
 
+	generic "go.hasen.dev/generic"
 	. "go.hasen.dev/shirei"
 	app "go.hasen.dev/shirei/app"
 	. "go.hasen.dev/shirei/widgets"
@@ -54,6 +56,13 @@ type App struct {
 
 	Theme string // "auto" (OS default), "light" or "dark"
 
+	// Track browser: threaded sort state (header clicks) and scroll offset
+	// (wheel writes it back; arrow navigation writes it to follow the
+	// selection). tableH caches the list viewport height.
+	SortState  TableSortState
+	listScroll float32
+	tableH     float32
+
 	// Splitter between the track browser and the tool's detail panel.
 	splitW       float32 // browser width; 0 = default
 	splitRowRect Rect
@@ -63,6 +72,9 @@ type App struct {
 	formRowRect Rect
 
 	onQuit func() // test hook; defaults to app.Quit
+
+	cfgPath     string // config.yaml path (set for the UI session)
+	cfgWritable bool   // config loaded cleanly → safe to rewrite on exit
 }
 
 const (
@@ -73,7 +85,7 @@ const (
 
 // NewApp builds the app state and opens the library.
 func NewApp(dbPath string) *App {
-	a := &App{DBPath: dbPath, Theme: "auto", splitW: 560}
+	a := &App{DBPath: dbPath, Theme: "auto", splitW: 560, SortState: TableSortState{Column: 1}}
 	for _, f := range toolFactories {
 		a.Tools = append(a.Tools, f())
 	}
@@ -118,9 +130,7 @@ func (a *App) Refresh() {
 // RootView is the whole UI: a top bar with library controls, a tool sidebar
 // and the active tool's panel.
 func (a *App) RootView() {
-	if handleShortcuts() {
-		a.quit()
-	}
+	a.handleGlobalKeys()
 	p := a.pal()
 	// The root text ink cascades to every shirei-internal label (checkbox
 	// labels, table headers...) so dark mode never shows dark text.
@@ -138,18 +148,93 @@ func (a *App) RootView() {
 	})
 }
 
-// handleShortcuts handles global keyboard shortcuts. It reports true when the
-// user requested to quit (Cmd-Q on macOS, Ctrl-Q on Windows/Linux). It runs at
-// the very top of the frame, before any widget, so a focused text input cannot
-// swallow the combo.
-func handleShortcuts() bool {
+// handleGlobalKeys handles global keyboard shortcuts at the very top of the
+// frame, before any widget: Cmd-Q/Ctrl-Q quits, and plain Up/Down arrows move
+// the track selection (the key is consumed so focused text inputs don't see
+// it).
+func (a *App) handleGlobalKeys() {
 	fi := GetFrameInput()
 	if fi.Key == KeyQ && GetInputState().Modifiers == PrimaryMod() {
 		fi.Key = 0   // consume: no widget may react to the key...
 		fi.Text = "" // ...and no text input may insert a stray "q"
-		return true
+		a.quit()
+		return
 	}
-	return false
+	switch fi.Key {
+	case KeyUp:
+		if a.moveSelection(-1) {
+			fi.Key = 0
+		}
+	case KeyDown:
+		if a.moveSelection(1) {
+			fi.Key = 0
+		}
+	}
+}
+
+// moveSelection moves the selected track one row up/down in the displayed
+// (sorted) order and scrolls the browser so the row stays visible. Returns
+// false when there is nothing to select.
+func (a *App) moveSelection(dir int) bool {
+	ordered := a.orderedTracks()
+	if len(ordered) == 0 {
+		return false
+	}
+	idx := -1
+	for i, r := range ordered {
+		if r.ID == a.Selected {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		if dir > 0 {
+			idx = 0
+		} else {
+			idx = len(ordered) - 1
+		}
+	} else {
+		idx += dir
+		if idx < 0 {
+			idx = 0
+		}
+		if idx >= len(ordered) {
+			idx = len(ordered) - 1
+		}
+	}
+	a.Selected = ordered[idx].ID
+
+	// Follow the selection: place the row about a third from the top.
+	const rowHeight = 26
+	vh := a.tableH
+	if vh <= 0 {
+		vh = 480
+	}
+	target := float32(idx)*rowHeight - vh/3
+	if target < 0 {
+		target = 0
+	}
+	a.listScroll = target
+	RequestNextFrame()
+	return true
+}
+
+// orderedTracks returns the tracks in the browser's current display order
+// (mirrors the table's sort state).
+func (a *App) orderedTracks() []TrackRecord {
+	cols := a.trackColumns(nil)
+	rows := append([]TrackRecord{}, a.Tracks...)
+	col := a.SortState.Column
+	if col < 0 || col >= len(cols) || cols[col].Less == nil {
+		return rows
+	}
+	less := cols[col].Less
+	if a.SortState.Desc {
+		sort.SliceStable(rows, func(i, j int) bool { return less(rows[j], rows[i]) })
+	} else {
+		sort.SliceStable(rows, func(i, j int) bool { return less(rows[i], rows[j]) })
+	}
+	return rows
 }
 
 func (a *App) quit() {
@@ -299,23 +384,9 @@ func (a *App) Splitter() {
 	})
 }
 
-// BrowserPanel is the shared track list used by the tools: a search row plus
-// a sortable, virtualized table. Clicking a row selects the track.
-func (a *App) BrowserPanel(extra *TableColumn[TrackRecord]) {
-	p := a.pal()
-	Container(Attrs(Row, CrossMid, Gap(8), Pad4(0, 0, 8, 0)), func() {
-		Icon(SymSearch, TextColorVec(p.textDim))
-		Container(Attrs(Expand), func() {
-			at := DefaultTextInputAttrs()
-			at.Placeholder = "Filter tracks..."
-			a.input(&a.FilterDraft, at)
-		})
-		if Button(SymSearch, "Search") {
-			a.Filter = a.FilterDraft
-			a.Refresh()
-		}
-	})
-
+// trackColumns builds the browser's columns; extra (optional) is appended by
+// tools that want an additional column (e.g. file type).
+func (a *App) trackColumns(extra *TableColumn[TrackRecord]) []TableColumn[TrackRecord] {
 	columns := []TableColumn[TrackRecord]{
 		{
 			Label: "ID", Width: 60,
@@ -341,12 +412,46 @@ func (a *App) BrowserPanel(extra *TableColumn[TrackRecord]) {
 	if extra != nil {
 		columns = append(columns, *extra)
 	}
+	return columns
+}
 
+// BrowserPanel is the shared track list used by the tools: a search row plus
+// a sortable, virtualized table. Clicking a row selects the track; Up/Down
+// arrows move the selection (see handleGlobalKeys).
+func (a *App) BrowserPanel(extra *TableColumn[TrackRecord]) {
+	p := a.pal()
+	Container(Attrs(Row, CrossMid, Gap(8), Pad4(0, 0, 8, 0)), func() {
+		Icon(SymSearch, TextColorVec(p.textDim))
+		Container(Attrs(Expand), func() {
+			NextAccessName("filter-input")
+			AssignAccess()
+			at := DefaultTextInputAttrs()
+			at.Placeholder = "Filter tracks..."
+			a.input(&a.FilterDraft, at)
+			// Return in the filter box runs the search.
+			if fi := GetFrameInput(); fi.Key == KeyEnter && HasFocusWithin() {
+				fi.Key = 0
+				a.Filter = a.FilterDraft
+				a.Refresh()
+			}
+		})
+		if Button(SymSearch, "Search") {
+			a.Filter = a.FilterDraft
+			a.Refresh()
+		}
+	})
+
+	columns := a.trackColumns(extra)
+
+	// The table header keeps its own light chrome, so pin dark ink for it;
+	// body cells use a.L with the themed ink.
 	Container(Attrs(Grow(1), Expand, Clip, AmendTextStyle(TextColor(0, 0, 12, 1))), func() {
+		a.tableH = GetResolvedHeight()
 		attrs := TableAttrs[TrackRecord]{
-			RowHeight:         26,
-			DefaultSortColumn: 1,
-			OnRow:             a.browserRowHighlight,
+			RowHeight:    26,
+			SortState:    &a.SortState,
+			ScrollOffset: &a.listScroll,
+			OnRow:        a.browserRowHighlight,
 		}
 		TableExt("tracks", attrs, columns, a.Tracks, func(r TrackRecord) any { return r.ID })
 	})
@@ -382,19 +487,32 @@ func (a *App) browserRowHighlight(index int, r TrackRecord) {
 	}
 }
 
-func runUI(dbPath, snapshotPath string, toolIdx int, filter, theme string) {
-	a := NewApp(dbPath)
-	if theme == "light" || theme == "dark" {
-		a.Theme = theme
+func runUI(lc LoadedConfig, snapshotPath string, filter string) {
+	a := NewApp(lc.Library)
+	a.MusicRoot = lc.MusicRoot
+	a.Theme = lc.Theme
+	if lc.BrowserWidth > 0 {
+		a.splitW = lc.BrowserWidth
+	}
+	if lc.Tool >= 0 && lc.Tool < len(a.Tools) {
+		a.ActiveTool = lc.Tool
+	}
+	if lc.DiscogsToken != "" {
+		if tags, ok := a.Tools[1].(*TagsTool); ok {
+			tags.discogsToken = lc.DiscogsToken
+		}
 	}
 	if filter != "" {
 		a.Filter, a.FilterDraft = filter, filter
 		a.Refresh()
 	}
-	if toolIdx >= 0 && toolIdx < len(a.Tools) {
-		a.ActiveTool = toolIdx
-	}
 	if snapshotPath == "" {
+		// Persist the session's settings when the app exits (any quit path:
+		// window close, Cmd-Q, app.Quit) — but only when the config file was
+		// usable at startup, so a malformed file is never clobbered.
+		a.cfgPath = lc.Path
+		a.cfgWritable = lc.Err == nil
+		generic.AddExitCleanup(func() { a.persistConfig() })
 		app.SetupWindow("Engine DJ Multi Tool", 1180, 740)
 		app.Run(a.RootView)
 		return
@@ -406,5 +524,26 @@ func runUI(dbPath, snapshotPath string, toolIdx int, filter, theme string) {
 	if err := RenderToPNG(snapshotPath, 1180, 740, a.RootView); err != nil {
 		fmt.Fprintf(os.Stderr, "error: snapshot: %v\n", err)
 		os.Exit(1)
+	}
+}
+
+// persistConfig rewrites config.yaml with the session's settings (theme,
+// tool, browser width, Discogs token).
+func (a *App) persistConfig() {
+	if !a.cfgWritable || a.cfgPath == "" {
+		return
+	}
+	cfg := Config{
+		Library:      a.DBPath,
+		MusicRoot:    a.MusicRoot,
+		Theme:        a.Theme,
+		Tool:         a.ActiveTool,
+		BrowserWidth: a.splitW,
+	}
+	if tags, ok := a.Tools[1].(*TagsTool); ok {
+		cfg.DiscogsToken = tags.discogsToken
+	}
+	if err := SaveConfigFile(a.cfgPath, cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not save config: %v\n", err)
 	}
 }
