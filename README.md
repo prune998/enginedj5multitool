@@ -292,6 +292,8 @@ theme: auto              # auto | light | dark
 tool: 0                  # tool tab opened at startup
 browser_width: 560       # track list width
 discogs_token: ""        # personal access token for artwork search
+window_width: 0          # main window width (saved on quit; 0 = default)
+window_height: 0         # main window height (saved on quit; 0 = default)
 ```
 
 Command-line flags override the file's values. The file is edited via the
@@ -299,7 +301,8 @@ Command-line flags override the file's values. The file is edited via the
 config.yaml* — they are applied to the running session and written to disk
 (*Reload from file* re-reads it). Changes made elsewhere in the UI (theme
 selector, splitter, library path, tag edits) are session-only and never
-written to the config file.
+written to the config file — with one exception: the **window size** is saved
+back to the config when the app quits.
 
 ## CI / Releases
 

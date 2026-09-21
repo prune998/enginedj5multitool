@@ -20,6 +20,8 @@ type Config struct {
 	Theme        string  `yaml:"theme"`         // auto | light | dark
 	Tool         int     `yaml:"tool"`          // tool tab opened at startup (0 = Cues & Loops, 1 = MP3 Tags)
 	BrowserWidth float32 `yaml:"browser_width"` // track list width in points
+	WindowWidth  float64 `yaml:"window_width"`  // main window width (saved on quit; 0 = default)
+	WindowHeight float64 `yaml:"window_height"` // main window height (saved on quit; 0 = default)
 	DiscogsToken string  `yaml:"discogs_token"` // personal access token for artwork search
 }
 

@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strings"
 
+	generic "go.hasen.dev/generic"
 	. "go.hasen.dev/shirei"
 	app "go.hasen.dev/shirei/app"
 	. "go.hasen.dev/shirei/widgets"
@@ -480,6 +482,10 @@ func (a *App) BrowserPanel(extra *TableColumn[TrackRecord]) {
 				a.Refresh()
 			}
 		})
+		if CtrlButton(SymICross, "Clear", strings.TrimSpace(a.FilterDraft) != "" || strings.TrimSpace(a.Filter) != "") {
+			a.FilterDraft, a.Filter = "", ""
+			a.Refresh()
+		}
 		if Button(SymSearch, "Search") {
 			a.Filter = a.FilterDraft
 			a.Refresh()
@@ -553,7 +559,10 @@ func runUI(lc LoadedConfig, snapshotPath string, filter string) {
 	}
 	if snapshotPath == "" {
 		a.cfgPath = lc.Path
-		app.SetupWindow("Engine DJ Multi Tool", 1180, 740)
+		// Save the window size on exit — the only main-UI value written back
+		// to the config file (and never when the file was malformed).
+		generic.AddExitCleanup(func() { a.saveWindowDims() })
+		app.SetupWindow("Engine DJ Multi Tool", a.startupWindowWidth(), a.startupWindowHeight())
 		app.Run(a.RootView)
 		return
 	}
@@ -564,5 +573,39 @@ func runUI(lc LoadedConfig, snapshotPath string, filter string) {
 	if err := RenderToPNG(snapshotPath, 1180, 740, a.RootView); err != nil {
 		fmt.Fprintf(os.Stderr, "error: snapshot: %v\n", err)
 		os.Exit(1)
+	}
+}
+
+// startupWindowWidth / startupWindowHeight return the window size from the
+// config (falling back to the built-in default when unset or implausible).
+func (a *App) startupWindowWidth() int {
+	cfg := LoadOrCreateConfig()
+	if cfg.Err == nil && cfg.WindowWidth >= 200 && cfg.WindowWidth <= 8000 {
+		return int(cfg.WindowWidth)
+	}
+	return 1180
+}
+
+func (a *App) startupWindowHeight() int {
+	cfg := LoadOrCreateConfig()
+	if cfg.Err == nil && cfg.WindowHeight >= 150 && cfg.WindowHeight <= 6000 {
+		return int(cfg.WindowHeight)
+	}
+	return 740
+}
+
+// saveWindowDims persists the window size on quit — the only main-UI value
+// written back to the config file. The file is re-read first so manual edits
+// survive, and a malformed file is never clobbered.
+func (a *App) saveWindowDims() {
+	lc := LoadOrCreateConfig()
+	if lc.Err != nil {
+		return
+	}
+	ws := GetHost().WindowSize
+	lc.WindowWidth = float64(ws[0])
+	lc.WindowHeight = float64(ws[1])
+	if err := SaveConfigFile(lc.Path, lc.Config); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not save window size: %v\n", err)
 	}
 }

@@ -36,9 +36,11 @@ func (t *CuesTool) View(a *App) {
 
 		a.Splitter()
 
-		// Right: detail panel fills the rest.
-		Container(Attrs(Grow(1), Expand, Clip, Pad2(0, 10), Gap(8)), func() {
+		// Right: detail panel fills the rest, scrolling when the content is
+		// taller than the pane.
+		Container(Attrs(Grow(1), Expand, Viewport, Pad2(0, 10), Gap(8)), func() {
 			t.DetailPanel(a)
+			ScrollBars()
 		})
 	})
 }

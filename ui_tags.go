@@ -56,8 +56,9 @@ func (t *TagsTool) View(a *App) {
 
 		a.Splitter()
 
-		Container(Attrs(Grow(1), Expand, Clip, Pad2(0, 10), Gap(8)), func() {
+		Container(Attrs(Grow(1), Expand, Viewport, Pad2(0, 10), Gap(8)), func() {
 			t.EditorPanel(a)
+			ScrollBars()
 		})
 	})
 }
