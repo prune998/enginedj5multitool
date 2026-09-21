@@ -221,12 +221,14 @@ func (t *TagsTool) displayArt() (*MediaArt, string) {
 }
 
 // downloadArt fetches cover art in the background; results land under the
-// frame lock so the frame function can read them safely.
+// frame lock so the frame function can read them safely. The search uses the
+// artist name and song title, falling back to the album.
 func (t *TagsTool) downloadArt(a *App, source string, rec TrackRecord) {
 	artist := firstNonEmpty(t.tags.Artist, rec.Artist)
-	album := firstNonEmpty(t.tags.Album, rec.Album, rec.Title)
-	if strings.TrimSpace(album) == "" {
-		Toast(SymFail, "Cannot search", "No album or title to search for.")
+	title := firstNonEmpty(t.tags.Title, rec.Title)
+	album := firstNonEmpty(t.tags.Album, rec.Album)
+	if strings.TrimSpace(artist) == "" || (strings.TrimSpace(title) == "" && strings.TrimSpace(album) == "") {
+		Toast(SymFail, "Cannot search", "No artist/title to search for.")
 		return
 	}
 	t.artBusy = source
@@ -238,9 +240,9 @@ func (t *TagsTool) downloadArt(a *App, source string, rec TrackRecord) {
 		var err error
 		switch source {
 		case "Discogs":
-			art, err = fetchArtDiscogs(artist, album, token)
+			art, err = fetchArtDiscogs(artist, title, album, token)
 		default:
-			art, err = fetchArtMusicBrainz(artist, album)
+			art, err = fetchArtMusicBrainz(artist, title, album)
 		}
 		WithFrameLock(func() {
 			t.artBusy = ""

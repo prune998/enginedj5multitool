@@ -22,9 +22,9 @@ import (
 // Cover Art Archive) and Discogs, plus helpers to sniff and decode images.
 
 var (
-	musicBrainzSearchURL = "https://musicbrainz.org/ws/2/release"
-	coverArtURL          = "https://coverartarchive.org/release"
-	discogsSearchURL     = "https://api.discogs.com/database/search"
+	musicBrainzBaseURL = "https://musicbrainz.org/ws/2"
+	coverArtURL        = "https://coverartarchive.org/release"
+	discogsSearchURL   = "https://api.discogs.com/database/search"
 )
 
 const userAgent = "enginedj5multitool/1.0 ( https://github.com/prune998/enginedj5multitool )"
@@ -103,31 +103,59 @@ func decodeRGBA(data []byte) *image.RGBA {
 	return rgba
 }
 
-// fetchArtMusicBrainz searches the release by artist + album and downloads
-// its front cover from the Cover Art Archive.
-func fetchArtMusicBrainz(artist, album string) (*MediaArt, error) {
+// fetchArtMusicBrainz searches the recording by artist + song title (falling
+// back to a release search on artist + album) and downloads the front cover
+// of the first matching release from the Cover Art Archive.
+func fetchArtMusicBrainz(artist, title, album string) (*MediaArt, error) {
+	releaseID := ""
+
+	// 1) Recording search by song title.
 	q := url.Values{}
-	q.Set("query", fmt.Sprintf(`artist:"%s" AND release:"%s"`, artist, album))
+	q.Set("query", fmt.Sprintf(`artist:"%s" AND recording:"%s"`, artist, title))
 	q.Set("fmt", "json")
 	q.Set("limit", "1")
-	data, _, err := httpGetBody(musicBrainzSearchURL+"?"+q.Encode(), map[string]string{
+	data, _, err := httpGetBody(musicBrainzBaseURL+"/recording?"+q.Encode(), map[string]string{
 		"Accept": "application/json",
 	})
-	if err != nil {
-		return nil, fmt.Errorf("MusicBrainz search: %w", err)
+	if err == nil {
+		var res struct {
+			Recordings []struct {
+				Releases []struct {
+					ID string `json:"id"`
+				} `json:"releases"`
+			} `json:"recordings"`
+		}
+		if json.Unmarshal(data, &res) == nil &&
+			len(res.Recordings) > 0 && len(res.Recordings[0].Releases) > 0 {
+			releaseID = res.Recordings[0].Releases[0].ID
+		}
 	}
-	var res struct {
-		Releases []struct {
-			ID string `json:"id"`
-		} `json:"releases"`
+
+	// 2) Fallback: release search by album.
+	if releaseID == "" && strings.TrimSpace(album) != "" {
+		q := url.Values{}
+		q.Set("query", fmt.Sprintf(`artist:"%s" AND release:"%s"`, artist, album))
+		q.Set("fmt", "json")
+		q.Set("limit", "1")
+		data, _, err := httpGetBody(musicBrainzBaseURL+"/release?"+q.Encode(), map[string]string{
+			"Accept": "application/json",
+		})
+		if err == nil {
+			var res struct {
+				Releases []struct {
+					ID string `json:"id"`
+				} `json:"releases"`
+			}
+			if json.Unmarshal(data, &res) == nil && len(res.Releases) > 0 {
+				releaseID = res.Releases[0].ID
+			}
+		}
 	}
-	if err := json.Unmarshal(data, &res); err != nil {
-		return nil, fmt.Errorf("MusicBrainz search: %w", err)
+
+	if releaseID == "" {
+		return nil, errors.New("no MusicBrainz release found for this artist/title")
 	}
-	if len(res.Releases) == 0 {
-		return nil, errors.New("no MusicBrainz release found for this artist/album")
-	}
-	artURL := fmt.Sprintf("%s/%s/front-500", coverArtURL, url.PathEscape(res.Releases[0].ID))
+	artURL := fmt.Sprintf("%s/%s/front-500", coverArtURL, url.PathEscape(releaseID))
 	imgData, ct, err := httpGetBody(artURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("Cover Art Archive: %w", err)
@@ -139,36 +167,58 @@ func fetchArtMusicBrainz(artist, album string) (*MediaArt, error) {
 	return &MediaArt{MIME: mime, Data: imgData}, nil
 }
 
-// fetchArtDiscogs searches the release and downloads its cover image.
-// Requires a personal API token from discogs.com/settings/developers.
-func fetchArtDiscogs(artist, album, token string) (*MediaArt, error) {
+// fetchArtDiscogs searches the release by artist + song title (falling back
+// to artist + album) and downloads its cover image. Requires a personal API
+// token from discogs.com/settings/developers.
+func fetchArtDiscogs(artist, title, album, token string) (*MediaArt, error) {
 	if strings.TrimSpace(token) == "" {
 		return nil, errors.New("Discogs requires a personal access token (discogs.com → Settings → Developers)")
 	}
+	search := func(query url.Values) (string, error) {
+		q := query
+		q.Set("type", "release")
+		q.Set("per_page", "1")
+		data, _, err := httpGetBody(discogsSearchURL+"?"+q.Encode(), map[string]string{
+			"Authorization": "Discogs token=" + strings.TrimSpace(token),
+			"Accept":        "application/json",
+		})
+		if err != nil {
+			return "", err
+		}
+		var res struct {
+			Results []struct {
+				CoverImage string `json:"cover_image"`
+			} `json:"results"`
+		}
+		if err := json.Unmarshal(data, &res); err != nil {
+			return "", err
+		}
+		if len(res.Results) == 0 {
+			return "", errors.New("no results")
+		}
+		return res.Results[0].CoverImage, nil
+	}
+
+	// 1) Song title search.
 	q := url.Values{}
 	q.Set("artist", artist)
-	q.Set("release_title", album)
-	q.Set("type", "release")
-	q.Set("per_page", "1")
-	data, _, err := httpGetBody(discogsSearchURL+"?"+q.Encode(), map[string]string{
-		"Authorization": "Discogs token=" + strings.TrimSpace(token),
-		"Accept":        "application/json",
-	})
+	q.Set("track", title)
+	cover, err := search(q)
+
+	// 2) Fallback: album search.
+	if err != nil && strings.TrimSpace(album) != "" {
+		q := url.Values{}
+		q.Set("artist", artist)
+		q.Set("release_title", title)
+		cover, err = search(q)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("Discogs search: %w", err)
 	}
-	var res struct {
-		Results []struct {
-			CoverImage string `json:"cover_image"`
-		} `json:"results"`
+	if cover == "" {
+		return nil, errors.New("no Discogs release found for this artist/title")
 	}
-	if err := json.Unmarshal(data, &res); err != nil {
-		return nil, fmt.Errorf("Discogs search: %w", err)
-	}
-	if len(res.Results) == 0 || res.Results[0].CoverImage == "" {
-		return nil, errors.New("no Discogs release found for this artist/album")
-	}
-	imgData, ct, err := httpGetBody(res.Results[0].CoverImage, nil)
+	imgData, ct, err := httpGetBody(cover, nil)
 	if err != nil {
 		return nil, fmt.Errorf("Discogs cover: %w", err)
 	}

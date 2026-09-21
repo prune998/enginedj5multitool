@@ -50,8 +50,9 @@ the list scroll follow along):
 - **Artwork download** — when a track has no embedded cover (or to replace
   it), fetch one from **MusicBrainz** (via the Cover Art Archive, no key
   needed) or **Discogs** (requires a personal access token from
-  discogs.com → Settings → Developers). The downloaded art is previewed and
-  embedded into the file when you press *Save changes*.
+  discogs.com → Settings → Developers). The search uses the **artist name and
+  song title** (falling back to the album), and the downloaded art is
+  previewed and embedded into the file when you press *Save changes*.
 
 Other UI features:
 

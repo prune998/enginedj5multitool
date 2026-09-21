@@ -10,6 +10,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"testing"
 
@@ -118,13 +119,28 @@ func TestEmbeddedArtRoundTrip(t *testing.T) {
 
 func TestFetchArtMusicBrainz(t *testing.T) {
 	var caaHits int
+	var recordingQuery, releaseQuery url.Values
 	mb := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("User-Agent") == "" {
 			t.Error("MusicBrainz request missing User-Agent")
 		}
-		json.NewEncoder(w).Encode(map[string]any{
-			"releases": []map[string]any{{"id": "mbid-123"}},
-		})
+		q := r.URL.Query()
+		switch r.URL.Path {
+		case "/recording":
+			recordingQuery = q
+			json.NewEncoder(w).Encode(map[string]any{
+				"recordings": []map[string]any{{
+					"releases": []map[string]any{{"id": "mbid-123"}},
+				}},
+			})
+		case "/release":
+			releaseQuery = q
+			json.NewEncoder(w).Encode(map[string]any{
+				"releases": []map[string]any{{"id": "album-mbid"}},
+			})
+		default:
+			t.Errorf("unexpected MB path %q", r.URL.Path)
+		}
 	}))
 	defer mb.Close()
 	caa := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -136,30 +152,73 @@ func TestFetchArtMusicBrainz(t *testing.T) {
 	}))
 	defer caa.Close()
 
-	oldSearch, oldCAA := musicBrainzSearchURL, coverArtURL
-	musicBrainzSearchURL, coverArtURL = mb.URL, caa.URL
-	defer func() { musicBrainzSearchURL, coverArtURL = oldSearch, oldCAA }()
+	oldBase, oldCAA := musicBrainzBaseURL, coverArtURL
+	musicBrainzBaseURL, coverArtURL = mb.URL, caa.URL
+	defer func() { musicBrainzBaseURL, coverArtURL = oldBase, oldCAA }()
 
-	art, err := fetchArtMusicBrainz("Artist", "Album")
+	// Primary: recording search by artist + song title.
+	art, err := fetchArtMusicBrainz("Artist", "Song", "Album")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if art.MIME != "image/jpeg" || !bytes.Equal(art.Data, jpegFixture) {
 		t.Errorf("art = %+v", art)
 	}
+	if recordingQuery.Get("query") != `artist:"Artist" AND recording:"Song"` {
+		t.Errorf("recording query = %q", recordingQuery.Get("query"))
+	}
 	if caaHits != 1 {
 		t.Errorf("CAA hits = %d", caaHits)
 	}
 
-	// No matching release → clear error.
-	musicBrainzSearchURL = mb.URL // still up
-	empty := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{"releases": []any{}})
-	}))
-	defer empty.Close()
-	musicBrainzSearchURL = empty.URL
-	if _, err := fetchArtMusicBrainz("Artist", "Album"); err == nil {
-		t.Error("expected error for no results")
+	// Fallback: no recording match → release search by album.
+	caaHits = 0
+	mb.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		switch r.URL.Path {
+		case "/recording":
+			recordingQuery = q
+			json.NewEncoder(w).Encode(map[string]any{"recordings": []any{}})
+		case "/release":
+			releaseQuery = q
+			json.NewEncoder(w).Encode(map[string]any{
+				"releases": []map[string]any{{"id": "album-mbid"}},
+			})
+		}
+	})
+	caa.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		caaHits++
+		if r.URL.Path != "/album-mbid/front-500" {
+			t.Errorf("fallback CAA path = %q", r.URL.Path)
+		}
+		w.Write(jpegFixture)
+	})
+	if art, err := fetchArtMusicBrainz("Artist", "Song", "Album"); err != nil {
+		t.Fatal(err)
+	} else if len(art.Data) == 0 {
+		t.Error("fallback art empty")
+	}
+	if recordingQuery.Get("query") != `artist:"Artist" AND recording:"Song"` {
+		t.Errorf("fallback recording query = %q", recordingQuery.Get("query"))
+	}
+	if releaseQuery.Get("query") != `artist:"Artist" AND release:"Album"` {
+		t.Errorf("fallback release query = %q", releaseQuery.Get("query"))
+	}
+	if caaHits != 1 {
+		t.Errorf("fallback CAA hits = %d", caaHits)
+	}
+
+	// Neither recording nor album matches → clear error.
+	mb.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/recording":
+			json.NewEncoder(w).Encode(map[string]any{"recordings": []any{}})
+		case "/release":
+			json.NewEncoder(w).Encode(map[string]any{"releases": []any{}})
+		}
+	})
+	if _, err := fetchArtMusicBrainz("Artist", "Song", "Album"); err == nil {
+		t.Error("expected error when nothing matches")
 	}
 }
 
@@ -170,8 +229,15 @@ func TestFetchArtDiscogs(t *testing.T) {
 	defer imgSrv.Close()
 
 	var gotAuth string
+	var searchQueries []url.Values
 	ds := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
+		searchQueries = append(searchQueries, r.URL.Query())
+		if r.URL.Query().Get("track") != "" {
+			// Title search: no match on the first call → exercises the fallback.
+			json.NewEncoder(w).Encode(map[string]any{"results": []any{}})
+			return
+		}
 		json.NewEncoder(w).Encode(map[string]any{
 			"results": []map[string]any{{"cover_image": imgSrv.URL + "/cover.jpg"}},
 		})
@@ -182,11 +248,12 @@ func TestFetchArtDiscogs(t *testing.T) {
 	discogsSearchURL = ds.URL
 	defer func() { discogsSearchURL = oldSearch }()
 
-	if _, err := fetchArtDiscogs("Artist", "Album", ""); err == nil {
+	if _, err := fetchArtDiscogs("Artist", "Song", "Album", ""); err == nil {
 		t.Error("expected error without a token")
 	}
 
-	art, err := fetchArtDiscogs("Artist", "Album", "my-token")
+	searchQueries = nil
+	art, err := fetchArtDiscogs("Artist", "Song", "Album", "my-token")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,6 +262,15 @@ func TestFetchArtDiscogs(t *testing.T) {
 	}
 	if gotAuth != "Discogs token=my-token" {
 		t.Errorf("Authorization = %q", gotAuth)
+	}
+	if len(searchQueries) != 2 {
+		t.Fatalf("search calls = %d, want 2 (title then album fallback)", len(searchQueries))
+	}
+	if searchQueries[0].Get("track") != "Song" || searchQueries[0].Get("artist") != "Artist" {
+		t.Errorf("title search query = %v", searchQueries[0])
+	}
+	if searchQueries[1].Get("release_title") != "Album" {
+		t.Errorf("album fallback query = %v", searchQueries[1])
 	}
 }
 
