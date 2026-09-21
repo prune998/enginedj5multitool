@@ -39,10 +39,13 @@ the list scroll follow along):
 - **MP3 Tags** — shows the embedded cover art above the form and loads the
   ID3v2 tags of the selected MP3 from disk into an editable form (title,
   artist, album, album artist, genre, year, track #, disc #, composer, BPM,
-  comment). `Save changes` rewrites the ID3v2 tag in place (preserving
-  the tag version, album art and all untouched frames; tagless files get a new
-  tag). With *Also update Engine DJ database* checked, the matching `Track`
-  row is updated so the library metadata stays in sync.
+  comment). The **5-star rating** above the form is stored in the Engine DJ
+  database (click a star to set it, click the single filled star again to
+  clear) and shown as a column in the track list. `Save changes` rewrites the
+  ID3v2 tag in place (preserving the tag version, album art and all untouched
+  frames; tagless files get a new tag). With *Also update Engine DJ database*
+  checked, the matching `Track` row is updated so the library metadata stays
+  in sync.
 - **Artwork download** — when a track has no embedded cover (or to replace
   it), fetch one from **MusicBrainz** (via the Cover Art Archive, no key
   needed) or **Discogs** (requires a personal access token from

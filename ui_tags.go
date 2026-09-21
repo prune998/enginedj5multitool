@@ -106,9 +106,39 @@ func (t *TagsTool) EditorPanel(a *App) {
 	}
 
 	t.ArtworkPanel(a, rec)
+	t.RatingRow(a, rec)
 	t.Form(a)
 	t.TagBubbles(a)
 	t.SaveRow(a, rec)
+}
+
+// RatingRow renders the 5-star rating editor. The rating lives in the Engine
+// DJ database (not the file tags), so changes are written immediately and the
+// browser list updates in place.
+func (t *TagsTool) RatingRow(a *App, rec TrackRecord) {
+	p := a.pal()
+	Container(Attrs(Row, CrossMid, Gap(10), Pad2(4, 0)), func() {
+		a.L("Rating", FontWeight(WeightBold), FontSize(14))
+		a.stars(rec.Rating, 20, func(star int) {
+			rating := int64(star * 20)
+			if star == 1 && rec.Rating == 20 {
+				rating = 0 // clicking the single filled star clears the rating
+			}
+			if err := a.lib.SetTrackRating(rec.ID, rating); err != nil {
+				Toast(SymFail, "Rating write failed", err.Error())
+				return
+			}
+			rec.Rating = rating
+			for i := range a.Tracks {
+				if a.Tracks[i].ID == rec.ID {
+					a.Tracks[i].Rating = rating
+					break
+				}
+			}
+		})
+		a.L(fmt.Sprintf("(%d/5 — stored in the Engine DJ database)", rec.Rating/20),
+			FontSize(11), TextColorVec(p.textDim))
+	})
 }
 
 // ArtworkPanel shows the embedded cover (or the downloaded preview) above the

@@ -23,6 +23,7 @@ type TrackRecord struct {
 	BPMFile   int64   // bpm from the file metadata
 	Year      int64
 	PlayOrder int64 // track number
+	Rating    int64 // 0..100 in steps of 20 (5-star scale)
 	Length    int64 // seconds
 }
 
@@ -74,7 +75,7 @@ func (l *Library) Tracks(filter string) ([]TrackRecord, error) {
 	query := `
 		SELECT id, IFNULL(title,''), IFNULL(artist,''), IFNULL(album,''), IFNULL(filename,''),
 		       IFNULL(path,''), IFNULL(fileType,''), IFNULL(bpmAnalyzed,0), IFNULL(bpm,0),
-		       IFNULL(year,0), IFNULL(playOrder,0), IFNULL(length,0)
+		       IFNULL(year,0), IFNULL(playOrder,0), IFNULL(rating,0), IFNULL(length,0)
 		FROM Track`
 	var args []any
 	if s := strings.TrimSpace(filter); s != "" {
@@ -94,12 +95,25 @@ func (l *Library) Tracks(filter string) ([]TrackRecord, error) {
 	for rows.Next() {
 		var r TrackRecord
 		if err := rows.Scan(&r.ID, &r.Title, &r.Artist, &r.Album, &r.Filename,
-			&r.Path, &r.FileType, &r.BPM, &r.BPMFile, &r.Year, &r.PlayOrder, &r.Length); err != nil {
+			&r.Path, &r.FileType, &r.BPM, &r.BPMFile, &r.Year, &r.PlayOrder, &r.Rating, &r.Length); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+// SetTrackRating writes a track's rating (0..100, steps of 20). The DB's own
+// trigger bumps Track.lastEditTime so Engine DJ picks up the change.
+func (l *Library) SetTrackRating(id int64, rating int64) error {
+	if rating < 0 {
+		rating = 0
+	}
+	if rating > 100 {
+		rating = 100
+	}
+	_, err := l.DB.Exec(`UPDATE Track SET rating=? WHERE id=?`, rating, id)
+	return err
 }
 
 // LoadDetail loads and parses the performance data (cues, loops, sample rate)

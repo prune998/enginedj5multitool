@@ -28,7 +28,8 @@ func buildTestLibrary(t *testing.T) string {
 	CREATE TABLE Track (
 		id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, artist TEXT, album TEXT,
 		filename TEXT, path TEXT, fileType TEXT, bpmAnalyzed REAL, length INTEGER,
-		bpm INTEGER, year INTEGER, playOrder INTEGER, genre TEXT, comment TEXT, composer TEXT
+		bpm INTEGER, year INTEGER, playOrder INTEGER, genre TEXT, comment TEXT, composer TEXT,
+		rating INTEGER
 	);
 	CREATE TABLE PerformanceData (
 		trackId INTEGER PRIMARY KEY, trackData BLOB, quickCues BLOB, loops BLOB, activeOnLoadLoops INTEGER
@@ -37,16 +38,17 @@ func buildTestLibrary(t *testing.T) string {
 		t.Fatal(err)
 	}
 	tracks := []struct {
-		id    int64
-		title string
-		art   string
+		id     int64
+		title  string
+		art    string
+		rating int64
 	}{
-		{5, "Emotion", "Purple Disco Machine"},
-		{7, "Galaxy", "Alex Metric"},
+		{5, "Emotion", "Purple Disco Machine", 20},
+		{7, "Galaxy", "Alex Metric", 0},
 	}
 	for _, tr := range tracks {
-		if _, err := db.Exec(`INSERT INTO Track (id, title, artist, filename, path, fileType, bpmAnalyzed, length, bpm, year, playOrder)
-			VALUES (?, ?, ?, ?, ?, 'mp3', 124.0, 200, 124, 2024, 3)`, tr.id, tr.title, tr.art, tr.title+".mp3", tr.title+".mp3"); err != nil {
+		if _, err := db.Exec(`INSERT INTO Track (id, title, artist, filename, path, fileType, bpmAnalyzed, length, bpm, year, playOrder, rating)
+			VALUES (?, ?, ?, ?, ?, 'mp3', 124.0, 200, 124, 2024, 3, ?)`, tr.id, tr.title, tr.art, tr.title+".mp3", tr.title+".mp3", tr.rating); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := db.Exec(`INSERT INTO PerformanceData (trackId, trackData, quickCues, loops, activeOnLoadLoops)
@@ -370,6 +372,29 @@ func TestDriveTagsToolLoad(t *testing.T) {
 	}
 	if tags.path != mp3 {
 		t.Errorf("resolved path = %q, want %q", tags.path, mp3)
+	}
+
+	// Click the 4th rating star: the rating is written to the DB immediately
+	// and the in-memory track list follows.
+	if _, err := drive.ClickOne(port, "rating-star-4"); err != nil {
+		t.Fatalf("click rating-star-4: %v", err)
+	}
+	time.Sleep(80 * time.Millisecond)
+
+	db, err := sql.Open("sqlite", dbPath+"?mode=ro")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var dbRating int64
+	if err := db.QueryRow(`SELECT rating FROM Track WHERE id = 5`).Scan(&dbRating); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	if dbRating != 80 {
+		t.Errorf("DB rating after clicking star-4 = %d, want 80", dbRating)
+	}
+	if a.Tracks[1].Rating != 80 { // ordered by artist: Alex Metric(7), Purple Disco Machine(5)
+		t.Errorf("in-memory rating = %d, want 80", a.Tracks[1].Rating)
 	}
 
 	// Sanity: the file's tag is untouched and readable by the library itself.

@@ -403,6 +403,11 @@ func (a *App) trackColumns(extra *TableColumn[TrackRecord]) []TableColumn[TrackR
 			Less:  func(a, b TrackRecord) bool { return a.Title < b.Title },
 		},
 		{
+			Label: "Rating", Width: 92,
+			Cell: func(r TrackRecord) { a.stars(r.Rating, 12, nil) },
+			Less: func(a, b TrackRecord) bool { return a.Rating < b.Rating },
+		},
+		{
 			Label: "Length", Width: 70,
 			Cell: func(r TrackRecord) { a.L(formatDuration(r.Length)) },
 			Less: func(a, b TrackRecord) bool { return a.Length < b.Length },
@@ -412,6 +417,42 @@ func (a *App) trackColumns(extra *TableColumn[TrackRecord]) []TableColumn[TrackR
 		columns = append(columns, *extra)
 	}
 	return columns
+}
+
+// stars renders a 0-5 star rating (rating in 0..100, steps of 20): gold
+// filled stars for the rating, dim outlines for the rest. When onClick is
+// non-nil the stars are clickable (star number is passed).
+func (a *App) stars(rating int64, size float32, onClick func(star int)) {
+	filled := int(rating / 20)
+	if filled > 5 {
+		filled = 5
+	}
+	if filled < 0 {
+		filled = 0
+	}
+	p := a.pal()
+	Container(Attrs(Row, CrossMid), func() {
+		for i := 1; i <= 5; i++ {
+			i, on := i, i <= filled
+			Container(Attrs(Pad2(0, 0)), func() {
+				if onClick != nil {
+					NextAccessName(fmt.Sprintf("rating-star-%d", i))
+					AssignAccess()
+					if IsHovered() {
+						ModAttrs(BackgroundVec(p.rowHover))
+					}
+					if PressAction() {
+						onClick(i)
+					}
+				}
+				if on {
+					Icon(TypStar, FontSize(size), TextColor(45, 85, 52, 1))
+				} else {
+					Icon(TypStarOutline, FontSize(size), TextColorVec(p.textDim))
+				}
+			})
+		}
+	})
 }
 
 // BrowserPanel is the shared track list used by the tools: a search row plus
