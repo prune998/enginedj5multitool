@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	id3v2 "github.com/bogem/id3v2/v2"
@@ -187,10 +189,14 @@ func SaveMediaTagsWithArt(path string, t MediaTags, art *MediaArt) error {
 func saveMediaTags(path string, t MediaTags, art *MediaArt) error {
 	tag, err := id3v2.Open(path, id3v2.Options{Parse: true})
 	if err == nil {
-		defer tag.Close()
 		applyMediaTags(tag, t)
 		applyArt(tag, art)
-		return tag.Save()
+		// Close before rewriting: on Windows the file must not be open for
+		// the rename below to succeed.
+		if cerr := tag.Close(); cerr != nil {
+			return cerr
+		}
+		return writeTagToFile(path, tag)
 	}
 	if errors.Is(err, os.ErrNotExist) {
 		return err
@@ -241,22 +247,119 @@ func applyMediaTags(tag *id3v2.Tag, t MediaTags) {
 // writeFreshTag builds a new ID3v2 tag from scratch and prepends it to the
 // raw audio data of a file that has no tag yet.
 func writeFreshTag(path string, t MediaTags, art *MediaArt) error {
-	audio, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	if isID3Header(audio) {
-		return fmt.Errorf("%s: has an unparsable ID3v2 tag", path)
+	header := make([]byte, 10)
+	if f, err := os.Open(path); err == nil {
+		_, rerr := io.ReadFull(f, header)
+		f.Close()
+		if rerr == nil && isID3Header(header[:]) {
+			return fmt.Errorf("%s: has an unparsable ID3v2 tag", path)
+		}
 	}
 	tag := id3v2.NewEmptyTag()
 	applyMediaTags(tag, t)
 	applyArt(tag, art)
-	var buf bytes.Buffer
-	if _, err := tag.WriteTo(&buf); err != nil {
+	return writeTagToFile(path, tag)
+}
+
+const id3Padding = 1024 // trailing zero bytes written after the last frame
+
+// syncsafeBytes encodes n as a 4-byte sync-safe integer (ID3v2 size field).
+func syncsafeBytes(n uint32) [4]byte {
+	return [4]byte{byte(n>>21) & 0x7f, byte(n>>14) & 0x7f, byte(n>>7) & 0x7f, byte(n) & 0x7f}
+}
+
+// syncsafeValue decodes a 4-byte sync-safe integer.
+func syncsafeValue(b []byte) uint32 {
+	return uint32(b[0]&0x7f)<<21 | uint32(b[1]&0x7f)<<14 | uint32(b[2]&0x7f)<<7 | uint32(b[3]&0x7f)
+}
+
+// writeTagToFile serializes the tag (header + frames) followed by trailing
+// zero padding that is INCLUDED in the declared tag size, then the audio
+// data, writing through a temp file + rename.
+//
+// The padding matters: readers like ExifTool warn "Missing ID3 terminating
+// frame" when a v2.4 tag's last frame ends flush at the declared size.
+func writeTagToFile(path string, tag *id3v2.Tag) error {
+	// Where the audio starts in the current file (after the old tag, if any).
+	audioStart := int64(0)
+	if f, err := os.Open(path); err == nil {
+		var header [10]byte
+		_, rerr := io.ReadFull(f, header[:])
+		f.Close()
+		if rerr == nil && isID3Header(header[:]) {
+			audioStart = 10 + int64(syncsafeValue(header[6:10]))
+		}
+	}
+
+	// Serialize the tag (header + frames; empty when there are no frames —
+	// in that case the old tag is simply stripped).
+	var tagBuf bytes.Buffer
+	if tag.Count() > 0 {
+		if _, err := tag.WriteTo(&tagBuf); err != nil {
+			return err
+		}
+		if tagBuf.Len() < 10 {
+			return fmt.Errorf("%s: serialized tag too short (%d bytes)", path, tagBuf.Len())
+		}
+		// Patch the declared size to include the padding.
+		total := uint32(tagBuf.Len() - 10 + id3Padding)
+		ss := syncsafeBytes(total)
+		copy(tagBuf.Bytes()[6:10], ss[:])
+	}
+
+	mode := os.FileMode(0o644)
+	if st, err := os.Stat(path); err == nil {
+		mode = st.Mode()
+	}
+
+	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".id3v2-*")
+	if err != nil {
 		return err
 	}
-	buf.Write(audio)
-	return os.WriteFile(path, buf.Bytes(), 0o644)
+	tmpName := tmp.Name()
+	committed := false
+	defer func() {
+		if !committed {
+			tmp.Close()
+			os.Remove(tmpName)
+		}
+	}()
+
+	if tagBuf.Len() > 0 {
+		if _, err := tmp.Write(tagBuf.Bytes()); err != nil {
+			return err
+		}
+		if _, err := tmp.Write(make([]byte, id3Padding)); err != nil {
+			return err
+		}
+	}
+
+	// Copy the audio (everything after the old tag — this also preserves an
+	// ID3v1 tag at the end of the file).
+	src, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	if _, err := src.Seek(audioStart, io.SeekStart); err != nil {
+		src.Close()
+		return err
+	}
+	_, err = io.Copy(tmp, src)
+	src.Close()
+	if err != nil {
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmpName, mode); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		return err
+	}
+	committed = true
+	return nil
 }
 
 func isID3Header(data []byte) bool {

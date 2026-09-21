@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"image"
 	"image/color"
 	"image/png"
@@ -210,5 +211,72 @@ func TestSaveMediaTagsWithArtOnTaglessFile(t *testing.T) {
 	}
 	if _, err := os.Stat(p); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestSaveWritesPadding walks the saved ID3v2 tag the way ExifTool does and
+// asserts that trailing zero padding follows the last frame — ExifTool warns
+// "Missing ID3 terminating frame" when a v2.4 tag ends flush at its last
+// frame. Also checks the audio bytes and that repeated saves don't grow the
+// file.
+func TestSaveWritesPadding(t *testing.T) {
+	p := mp3Fixture(t)
+	audio := bytes.Repeat([]byte{0xFF, 0xFB, 0x90, 0x00}, 512)
+
+	if err := SaveMediaTags(p, MediaTags{Title: "Padded", Artist: "A"}); err != nil {
+		t.Fatal(err)
+	}
+	walkTag := func(path string) (int, int, error) { // walkEnd, declaredEnd
+		d, err := os.ReadFile(path)
+		if err != nil {
+			return 0, 0, err
+		}
+		if string(d[:3]) != "ID3" {
+			return 0, 0, errors.New("no ID3 header")
+		}
+		size := int(d[6]&0x7f)<<21 | int(d[7]&0x7f)<<14 | int(d[8]&0x7f)<<7 | int(d[9]&0x7f)
+		end := 10 + size
+		off := 10
+		for off+10 <= end {
+			fid := string(d[off : off+4])
+			if fid == "\x00\x00\x00\x00" {
+				break // padding reached
+			}
+			// v2.4 sync-safe frame size
+			fsize := int(d[off+4]&0x7f)<<21 | int(d[off+5]&0x7f)<<14 | int(d[off+6]&0x7f)<<7 | int(d[off+7]&0x7f)
+			off += 10 + fsize
+		}
+		return off, end, nil
+	}
+
+	walkEnd, declaredEnd, err := walkTag(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if walkEnd == declaredEnd {
+		t.Fatal("tag ends flush at the last frame — ExifTool would warn 'Missing ID3 terminating frame'")
+	}
+	if declaredEnd-walkEnd < 4 {
+		t.Fatalf("padding too small: %d bytes", declaredEnd-walkEnd)
+	}
+	// Padding must be zeros.
+	d, _ := os.ReadFile(p)
+	if pad := d[walkEnd:declaredEnd]; !bytes.Equal(pad, make([]byte, len(pad))) {
+		t.Error("padding is not all zeros")
+	}
+	// Audio intact at the end of the file.
+	if !bytes.HasSuffix(d, audio) {
+		t.Error("audio data corrupted")
+	}
+
+	// Saving again must produce the same file size (padding is rebuilt, not
+	// accumulated).
+	s1, _ := os.Stat(p)
+	if err := SaveMediaTags(p, MediaTags{Title: "Padded", Artist: "A"}); err != nil {
+		t.Fatal(err)
+	}
+	s2, _ := os.Stat(p)
+	if s1.Size() != s2.Size() {
+		t.Errorf("file grew on re-save: %d -> %d", s1.Size(), s2.Size())
 	}
 }
