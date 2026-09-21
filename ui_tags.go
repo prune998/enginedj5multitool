@@ -22,7 +22,16 @@ type TagsTool struct {
 	pathErr string // file missing / not an mp3
 
 	tags    MediaTags
+	art     *MediaArt // embedded artwork from the file
 	readErr string
+
+	// artwork download state (mutated from the download goroutine under the
+	// frame lock, read during frames)
+	artBusy      string
+	artErr       string
+	pending      *MediaArt
+	pendingSrc   string
+	discogsToken string
 
 	alsoDB bool // also update the Engine DJ Track table
 	newTag string
@@ -96,9 +105,134 @@ func (t *TagsTool) EditorPanel(a *App) {
 		return
 	}
 
+	t.ArtworkPanel(a, rec)
 	t.Form(a)
 	t.TagBubbles(a)
 	t.SaveRow(a, rec)
+}
+
+// ArtworkPanel shows the embedded cover (or the downloaded preview) above the
+// tag form, with buttons to fetch art from MusicBrainz / Discogs.
+func (t *TagsTool) ArtworkPanel(a *App, rec TrackRecord) {
+	p := a.pal()
+	const boxSize = float32(150)
+
+	Container(Attrs(Row, Gap(12), Pad2(4, 0)), func() {
+		// Artwork box.
+		Container(Attrs(FixSize(boxSize, boxSize), Corners(8), Clip,
+			BackgroundVec(p.swatchEmpty), BorderWidth(1), BorderColorVec(p.inputBorder)), func() {
+			src, key := t.displayArt()
+			if src != nil {
+				if rgba := decodeRGBA(src.Data); rgba != nil {
+					id := UseImage(key, rgba)
+					ImageView(id, Vec2{boxSize, boxSize})
+					return
+				}
+			}
+			Container(Attrs(Expand, Row, CrossMid), func() {
+				a.L("no artwork", FontSize(12), TextColorVec(p.textDim))
+			})
+		})
+
+		// Status + download controls.
+		Container(Attrs(Grow(1), Gap(6)), func() {
+			a.L("Artwork", FontWeight(WeightBold), FontSize(14))
+
+			note := "No artwork embedded in this file."
+			if t.art != nil {
+				note = fmt.Sprintf("Embedded: %s, %d KB.", t.art.MIME, len(t.art.Data)/1024)
+			}
+			if t.pending != nil {
+				note = fmt.Sprintf("Downloaded from %s (%d KB) — embedded when you Save.", t.pendingSrc, len(t.pending.Data)/1024)
+			}
+			a.L(note, FontSize(11), TextColorVec(p.textDim))
+
+			Container(Attrs(Row, CrossMid, Gap(8)), func() {
+				busy := t.artBusy != ""
+				if CtrlButton(SymCloud, "MusicBrainz", !busy) {
+					t.downloadArt(a, "MusicBrainz", rec)
+				}
+				if CtrlButton(SymDownload, "Discogs", !busy) {
+					t.downloadArt(a, "Discogs", rec)
+				}
+			})
+			Container(Attrs(Row, CrossMid, Gap(8)), func() {
+				a.L("Discogs token", FontSize(11), TextColorVec(p.textDim))
+				Container(Attrs(Grow(1), MaxWidth(320)), func() {
+					at := DefaultTextInputAttrs()
+					at.Placeholder = "personal access token"
+					a.input(&t.discogsToken, at)
+				})
+			})
+
+			switch {
+			case t.artBusy != "":
+				Container(Attrs(Row, CrossMid, Gap(6)), func() {
+					BusyDots()
+					a.L("Searching "+t.artBusy+"…", FontSize(12), TextColorVec(p.textDim))
+				})
+			case t.artErr != "":
+				a.L(t.artErr, FontSize(12), TextColor(0, 70, 40, 1))
+			}
+		})
+	})
+}
+
+// displayArt picks the artwork to show (downloaded preview wins over the
+// embedded one) and a stable cache key for shirei's image registry.
+func (t *TagsTool) displayArt() (*MediaArt, string) {
+	if t.pending != nil {
+		return t.pending, fmt.Sprintf("pending-%s-%d", t.pendingSrc, t.lastSel)
+	}
+	if t.art != nil {
+		return t.art, fmt.Sprintf("embedded-%d-%x", t.lastSel, len(t.art.Data))
+	}
+	return nil, ""
+}
+
+// downloadArt fetches cover art in the background; results land under the
+// frame lock so the frame function can read them safely.
+func (t *TagsTool) downloadArt(a *App, source string, rec TrackRecord) {
+	artist := firstNonEmpty(t.tags.Artist, rec.Artist)
+	album := firstNonEmpty(t.tags.Album, rec.Album, rec.Title)
+	if strings.TrimSpace(album) == "" {
+		Toast(SymFail, "Cannot search", "No album or title to search for.")
+		return
+	}
+	t.artBusy = source
+	t.artErr = ""
+	token := t.discogsToken
+
+	go func() {
+		var art *MediaArt
+		var err error
+		switch source {
+		case "Discogs":
+			art, err = fetchArtDiscogs(artist, album, token)
+		default:
+			art, err = fetchArtMusicBrainz(artist, album)
+		}
+		WithFrameLock(func() {
+			t.artBusy = ""
+			if err != nil {
+				t.artErr = err.Error()
+			} else {
+				t.pending = art
+				t.pendingSrc = source
+				t.artErr = ""
+			}
+		})
+		RequestNextFrame()
+	}()
+}
+
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // ensureLoaded (re)reads the tags from the file whenever the selection changes.
@@ -108,8 +242,10 @@ func (t *TagsTool) ensureLoaded(a *App, rec TrackRecord) {
 	}
 	t.lastSel = a.Selected
 	t.saved = false
+	t.pending, t.pendingSrc, t.artBusy, t.artErr = nil, "", "", ""
 	t.path = ResolveMediaPath(a.lib.Dir, a.MusicRoot, rec.Path)
 	t.tags = MediaTags{}
+	t.art = nil
 	t.readErr, t.pathErr = "", ""
 
 	if st, err := os.Stat(t.path); err != nil || st.IsDir() {
@@ -123,6 +259,9 @@ func (t *TagsTool) ensureLoaded(a *App, rec TrackRecord) {
 		return
 	}
 	t.tags = tags
+	if art, err := ReadEmbeddedArt(t.path); err == nil {
+		t.art = art
+	}
 }
 
 // Form renders the editable tag fields. Title/Artist/Album/Composer span the
@@ -404,11 +543,22 @@ func (t *TagsTool) SaveRow(a *App, rec TrackRecord) {
 }
 
 func (t *TagsTool) Save(a *App, rec TrackRecord) {
-	if err := SaveMediaTags(t.path, t.tags); err != nil {
+	var err error
+	if t.pending != nil {
+		err = SaveMediaTagsWithArt(t.path, t.tags, t.pending)
+	} else {
+		err = SaveMediaTags(t.path, t.tags)
+	}
+	if err != nil {
 		Toast(SymFail, "Tag write failed", err.Error())
 		return
 	}
 	msg := "ID3v2 tags written to " + baseName(t.path)
+	if t.pending != nil {
+		msg += fmt.Sprintf(" (+%d KB artwork)", len(t.pending.Data)/1024)
+		t.art = t.pending
+		t.pending = nil
+	}
 	if t.alsoDB {
 		if err := a.lib.UpdateTrackMetadata(rec.ID, t.tags); err != nil {
 			Toast(SymFail, "File saved, DB sync failed", err.Error())

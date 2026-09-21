@@ -34,12 +34,18 @@ sortable, virtualized table; click a row to select it):
   with color swatches, timestamps and order status. `Dry run` previews the fix
   inline (per-slot `slot N ← M` changes); `Fix selected track` and
   `Fix all filtered (N)` apply it (writes only happen when dry run is off).
-- **MP3 Tags** — loads the ID3v2 tags of the selected MP3 from disk into an
-  editable form (title, artist, album, album artist, genre, year, track #,
-  disc #, composer, BPM, comment). `Save tags to file` rewrites the ID3v2 tag
-  in place (preserving the tag version, album art and all untouched frames;
-  tagless files get a new tag). With *Also update Engine DJ database* checked,
-  the matching `Track` row is updated so the library metadata stays in sync.
+- **MP3 Tags** — shows the embedded cover art above the form and loads the
+  ID3v2 tags of the selected MP3 from disk into an editable form (title,
+  artist, album, album artist, genre, year, track #, disc #, composer, BPM,
+  comment). `Save tags to file` rewrites the ID3v2 tag in place (preserving
+  the tag version, album art and all untouched frames; tagless files get a new
+  tag). With *Also update Engine DJ database* checked, the matching `Track`
+  row is updated so the library metadata stays in sync.
+- **Artwork download** — when a track has no embedded cover (or to replace
+  it), fetch one from **MusicBrainz** (via the Cover Art Archive, no key
+  needed) or **Discogs** (requires a personal access token from
+  discogs.com → Settings → Developers). The downloaded art is previewed and
+  embedded into the file when you press *Save tags to file*.
 
 Other UI features:
 

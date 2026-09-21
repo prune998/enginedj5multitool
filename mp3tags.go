@@ -129,21 +129,90 @@ func setComment(tag *id3v2.Tag, text string) {
 	})
 }
 
+// MediaArt is an embedded or downloaded picture (MP3 APIC frame).
+type MediaArt struct {
+	MIME string
+	Data []byte
+}
+
+// ReadEmbeddedArt returns the artwork embedded in an MP3 file, preferring the
+// front cover (APIC picture type 3). Returns nil when the file has none.
+func ReadEmbeddedArt(path string) (*MediaArt, error) {
+	tag, err := id3v2.Open(path, id3v2.Options{Parse: true})
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
+		return nil, nil // no/undecodable tag: no artwork
+	}
+	defer tag.Close()
+
+	frames := tag.GetFrames(frPicture)
+	var any *MediaArt
+	for _, f := range frames {
+		pf, ok := f.(id3v2.PictureFrame)
+		if !ok || len(pf.Picture) == 0 {
+			continue
+		}
+		mime := pf.MimeType
+		if m := sniffImageMIME(pf.Picture, mime); m != "" {
+			mime = m
+		}
+		art := &MediaArt{MIME: mime, Data: pf.Picture}
+		if pf.PictureType == 3 { // front cover wins
+			return art, nil
+		}
+		if any == nil {
+			any = art
+		}
+	}
+	return any, nil
+}
+
+const frPicture = "APIC"
+
 // SaveMediaTags writes the editable tags to an MP3 file, preserving the
 // existing ID3v2 version and all untouched frames (album art, TBPM from
 // analysis, custom frames...). Files without an existing ID3v2 tag get one.
 func SaveMediaTags(path string, t MediaTags) error {
+	return saveMediaTags(path, t, nil)
+}
+
+// SaveMediaTagsWithArt behaves like SaveMediaTags and additionally replaces
+// the embedded artwork with art (when art is non-nil).
+func SaveMediaTagsWithArt(path string, t MediaTags, art *MediaArt) error {
+	return saveMediaTags(path, t, art)
+}
+
+func saveMediaTags(path string, t MediaTags, art *MediaArt) error {
 	tag, err := id3v2.Open(path, id3v2.Options{Parse: true})
 	if err == nil {
 		defer tag.Close()
 		applyMediaTags(tag, t)
+		applyArt(tag, art)
 		return tag.Save()
 	}
 	if errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	// No readable ID3v2 tag: create a fresh one and prepend it to the audio.
-	return writeFreshTag(path, t)
+	return writeFreshTag(path, t, art)
+}
+
+// applyArt replaces the embedded picture when art is non-nil; otherwise the
+// existing artwork frames are left untouched.
+func applyArt(tag *id3v2.Tag, art *MediaArt) {
+	if art == nil || len(art.Data) == 0 {
+		return
+	}
+	tag.DeleteFrames(frPicture)
+	tag.AddAttachedPicture(id3v2.PictureFrame{
+		Encoding:    tag.DefaultEncoding(),
+		MimeType:    art.MIME,
+		PictureType: 3, // front cover
+		Description: "",
+		Picture:     art.Data,
+	})
 }
 
 func applyMediaTags(tag *id3v2.Tag, t MediaTags) {
@@ -171,7 +240,7 @@ func applyMediaTags(tag *id3v2.Tag, t MediaTags) {
 
 // writeFreshTag builds a new ID3v2 tag from scratch and prepends it to the
 // raw audio data of a file that has no tag yet.
-func writeFreshTag(path string, t MediaTags) error {
+func writeFreshTag(path string, t MediaTags, art *MediaArt) error {
 	audio, err := os.ReadFile(path)
 	if err != nil {
 		return err
@@ -181,6 +250,7 @@ func writeFreshTag(path string, t MediaTags) error {
 	}
 	tag := id3v2.NewEmptyTag()
 	applyMediaTags(tag, t)
+	applyArt(tag, art)
 	var buf bytes.Buffer
 	if _, err := tag.WriteTo(&buf); err != nil {
 		return err
