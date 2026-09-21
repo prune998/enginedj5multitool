@@ -118,7 +118,9 @@ func (a *App) RootView() {
 		a.quit()
 	}
 	p := a.pal()
-	Container(Attrs(Viewport, BackgroundVec(p.bgRoot)), func() {
+	// The root text ink cascades to every shirei-internal label (checkbox
+	// labels, table headers...) so dark mode never shows dark text.
+	Container(Attrs(Viewport, BackgroundVec(p.bgRoot), AmendTextStyle(TextColorVec(p.text))), func() {
 		a.TopBar()
 		Container(Attrs(Row, Grow(1), Expand), func() {
 			a.Sidebar()
@@ -163,7 +165,7 @@ func (a *App) TopBar() {
 
 		Label("Library", TextColorVec(p.textDim))
 		Container(Attrs(Grow(1), MinWidth(180), MaxWidth(320)), func() {
-			TextInput(&a.DBPath)
+			a.input(&a.DBPath, smallInput(180))
 		})
 		if Button(SymRefresh, "Load") {
 			a.Filter = a.FilterDraft
@@ -172,7 +174,7 @@ func (a *App) TopBar() {
 
 		Label("Music root", TextColorVec(p.textDim))
 		Container(Attrs(Grow(1), MinWidth(120), MaxWidth(260)), func() {
-			TextInput(&a.MusicRoot)
+			a.input(&a.MusicRoot, smallInput(120))
 		})
 
 		Container(Attrs(Row, CrossMid), func() {
@@ -285,7 +287,9 @@ func (a *App) BrowserPanel(extra *TableColumn[TrackRecord]) {
 	Container(Attrs(Row, CrossMid, Gap(8), Pad4(0, 0, 8, 0)), func() {
 		Icon(SymSearch, TextColorVec(p.textDim))
 		Container(Attrs(Expand), func() {
-			TextInput(&a.FilterDraft)
+			at := DefaultTextInputAttrs()
+			at.Placeholder = "Filter tracks..."
+			a.input(&a.FilterDraft, at)
 		})
 		if Button(SymSearch, "Search") {
 			a.Filter = a.FilterDraft
@@ -319,7 +323,7 @@ func (a *App) BrowserPanel(extra *TableColumn[TrackRecord]) {
 		columns = append(columns, *extra)
 	}
 
-	Container(Attrs(Grow(1), Expand, Clip), func() {
+	Container(Attrs(Grow(1), Expand, Clip, AmendTextStyle(TextColor(0, 0, 12, 1))), func() {
 		attrs := TableAttrs[TrackRecord]{
 			RowHeight:         26,
 			DefaultSortColumn: 1,

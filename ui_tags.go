@@ -123,76 +123,32 @@ func (t *TagsTool) ensureLoaded(a *App, rec TrackRecord) {
 	t.tags = tags
 }
 
-// Form renders the editable tag fields. Title and Artist span the full width
-// of the panel; the rest share rows.
+// Form renders the editable tag fields. Every input spans the full panel
+// width for better readability.
 func (t *TagsTool) Form(a *App) {
-	Container(Attrs(Gap(6)), func() {
+	Container(Attrs(Expand, Gap(8)), func() {
 		t.fieldFull(a, "Title", &t.tags.Title)
 		t.fieldFull(a, "Artist", &t.tags.Artist)
-		t.row(a,
-			t.field(a, "Album", &t.tags.Album),
-			t.field(a, "Album artist", &t.tags.AlbumArtist),
-		)
-		t.row(a,
-			t.field(a, "Genre", &t.tags.Genre),
-			t.fieldFix(a, "Year", &t.tags.Year, 110),
-			t.fieldFix(a, "Track #", &t.tags.Track, 110),
-			t.fieldFix(a, "Disc #", &t.tags.Disc, 110),
-		)
-		t.row(a,
-			t.field(a, "Composer", &t.tags.Composer),
-			t.fieldFix(a, "BPM", &t.tags.BPM, 110),
-		)
-		Container(Attrs(Gap(2), Expand), func() {
+		t.fieldFull(a, "Album", &t.tags.Album)
+		t.fieldFull(a, "Album artist", &t.tags.AlbumArtist)
+		t.fieldFull(a, "Genre", &t.tags.Genre)
+		t.fieldFull(a, "Year", &t.tags.Year)
+		t.fieldFull(a, "Track #", &t.tags.Track)
+		t.fieldFull(a, "Disc #", &t.tags.Disc)
+		t.fieldFull(a, "Composer", &t.tags.Composer)
+		t.fieldFull(a, "BPM", &t.tags.BPM)
+		Container(Attrs(Expand, Gap(2)), func() {
 			a.L("Comment", FontSize(11), TextColorVec(a.pal().textDim))
-			TextArea(&t.tags.Comment)
+			a.textArea(&t.tags.Comment)
 		})
 	})
 }
 
-// row lays out field containers horizontally, filling the panel width.
-func (t *TagsTool) row(a *App, fields ...func()) {
-	Container(Attrs(Row, Expand, Gap(8)), func() {
-		for _, f := range fields {
-			f()
-		}
-	})
-}
-
-// smallInput is a TextInputAttrs with a reduced minimum width while keeping
-// the default single-line behaviour.
-func smallInput(minWidth float32) TextInputAttrs {
-	at := DefaultTextInputAttrs()
-	at.MinWidth = minWidth
-	return at
-}
-
-// field is a label+input pair that grows to share the row width.
-func (t *TagsTool) field(a *App, label string, buf *string) func() {
-	return func() {
-		Container(Attrs(Grow(1), Gap(2)), func() {
-			a.L(label, FontSize(11), TextColorVec(a.pal().textDim))
-			TextInputExt(buf, smallInput(40))
-		})
-	}
-}
-
-// fieldFix is a label+input pair that shares the row width but keeps a
-// readable minimum.
-func (t *TagsTool) fieldFix(a *App, label string, buf *string, w float32) func() {
-	return func() {
-		Container(Attrs(Grow(1), Gap(2)), func() {
-			a.L(label, FontSize(11), TextColorVec(a.pal().textDim))
-			TextInputExt(buf, smallInput(w/2))
-		})
-	}
-}
-
-// fieldFull renders a label + input pair spanning the full panel width.
+// fieldFull renders a label + themed input spanning the full panel width.
 func (t *TagsTool) fieldFull(a *App, label string, buf *string) {
 	Container(Attrs(Expand, Gap(2)), func() {
 		a.L(label, FontSize(11), TextColorVec(a.pal().textDim))
-		TextInput(buf)
+		a.input(buf, DefaultTextInputAttrs())
 	})
 }
 
@@ -249,34 +205,35 @@ func addTag(comment, name string) string {
 // remove it from the comment, or add a new one below.
 func (t *TagsTool) TagBubbles(a *App) {
 	tags := parseHashTags(t.tags.Comment)
-	if len(tags) == 0 && t.newTag == "" && !t.saved {
-		// still render the add row
-	}
 	p := a.pal()
 	a.L("Tags", FontSize(11), TextColorVec(p.textDim))
-	Container(Attrs(Row, Wrap, Gap(6), Pad2(2, 0)), func() {
-		for _, name := range tags {
-			n := name
-			hue := tagHue(n)
-			Container(Attrs(Row, CrossMid, Gap(4), Pad2(2, 9), Corners(10),
-				Background(hue, 45, lightnessFor(a), 1), Gap(2)), func() {
-				if IsHovered() {
-					ModAttrs(Background(hue, 55, hoverLightnessFor(a), 1))
-				}
-				if PressAction() {
-					t.tags.Comment = removeTag(t.tags.Comment, n)
-				}
-				a.L("#"+n, FontSize(12), TextColorVec(p.bubbleInk))
-				a.L("×", FontSize(12), TextColorVec(p.bubbleInk))
+	Container(Attrs(Expand, Gap(6), Pad2(2, 0)), func() {
+		Container(Attrs(Row, Wrap, CrossMid, Gap(6)), func() {
+			for _, name := range tags {
+				n := name
+				hue := tagHue(n)
+				Container(Attrs(Row, CrossMid, Gap(4), Pad2(2, 9), Corners(10),
+					Background(hue, 45, lightnessFor(a), 1), Gap(2)), func() {
+					if IsHovered() {
+						ModAttrs(Background(hue, 55, hoverLightnessFor(a), 1))
+					}
+					if PressAction() {
+						t.tags.Comment = removeTag(t.tags.Comment, n)
+					}
+					a.L("#"+n, FontSize(12), TextColorVec(p.bubbleInk))
+					a.L("×", FontSize(12), TextColorVec(p.bubbleInk))
+				})
+			}
+			Container(Attrs(Grow(1), MinWidth(140), MaxWidth(220)), func() {
+				at := DefaultTextInputAttrs()
+				at.Placeholder = "#tag"
+				a.input(&t.newTag, at)
 			})
-		}
-		Container(Attrs(FixWidth(130)), func() {
-			TextInput(&t.newTag)
+			if CtrlButton(SymIPlus, "Add", strings.TrimSpace(t.newTag) != "") {
+				t.tags.Comment = addTag(t.tags.Comment, strings.TrimSpace(strings.TrimPrefix(t.newTag, "#")))
+				t.newTag = ""
+			}
 		})
-		if CtrlButton(SymIPlus, "Add", strings.TrimSpace(t.newTag) != "") {
-			t.tags.Comment = addTag(t.tags.Comment, strings.TrimSpace(strings.TrimPrefix(t.newTag, "#")))
-			t.newTag = ""
-		}
 	})
 }
 
