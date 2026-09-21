@@ -62,6 +62,7 @@ WHERE (
 	OR artist LIKE '%' || ?1 || '%'
 	OR album LIKE '%' || ?1 || '%'
 	OR filename LIKE '%' || ?1 || '%'
+	OR comment LIKE '%' || ?1 || '%'
 )
 ORDER BY artist, title
 `

@@ -23,6 +23,7 @@ WHERE (
 	OR artist LIKE '%' || sqlc.arg('filter') || '%'
 	OR album LIKE '%' || sqlc.arg('filter') || '%'
 	OR filename LIKE '%' || sqlc.arg('filter') || '%'
+	OR comment LIKE '%' || sqlc.arg('filter') || '%'
 )
 ORDER BY artist, title;
 

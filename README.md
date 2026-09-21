@@ -104,7 +104,7 @@ Useful flags:
 | Flag        | Default | Description                                                                 |
 |-------------|---------|-----------------------------------------------------------------------------|
 | `-db`       | `m.db`  | Path to the Engine DJ database                                              |
-| `-filter`   | *(empty)* | Case-insensitive substring matched against `title`, `artist`, `album` and `filename`. Empty = all tracks. |
+| `-filter`   | *(empty)* | Case-insensitive substring matched against `title`, `artist`, `album`, `filename` and `comment` (so `#tags` are searchable). Empty = all tracks. |
 | `-fix`      | off     | Reorder cues/loops and apply standard slot colors (see semantics below)     |
 | `-dry-run`  | off     | With `-fix`: show exactly what would change without writing to the DB       |
 

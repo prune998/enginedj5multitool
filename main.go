@@ -20,7 +20,7 @@ func main() {
 	}
 
 	dbPath := flag.String("db", lc.Library, "path to the Engine DJ database (m.db)")
-	filter := flag.String("filter", "", "substring filter on title/artist/album/filename (case-insensitive)")
+	filter := flag.String("filter", "", "substring filter on title/artist/album/filename/comment (case-insensitive)")
 	fix := flag.Bool("fix", false, "reorder cues/loops (chronological, latest at slot 8) and apply standard slot colours")
 	dryRun := flag.Bool("dry-run", false, "with -fix: show what would change without updating the DB")
 	ui := flag.Bool("ui", false, "launch the graphical interface")

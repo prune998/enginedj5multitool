@@ -38,18 +38,20 @@ func buildTestLibrary(t *testing.T) string {
 		t.Fatal(err)
 	}
 	tracks := []struct {
-		id     int64
-		title  string
-		art    string
-		rating int64
-		key    int64
+		id      int64
+		title   string
+		art     string
+		rating  int64
+		key     int64
+		comment string
 	}{
-		{5, "Emotion", "Purple Disco Machine", 20, 10}, // 10 = 1B (B major)
-		{7, "Galaxy", "Alex Metric", 0, -1},            // no key
+		{5, "Emotion", "Purple Disco Machine", 20, 10, "#atag #cued"}, // 10 = 1B (B major)
+		{7, "Galaxy", "Alex Metric", 0, -1, ""},                       // no key
 	}
 	for _, tr := range tracks {
-		if _, err := db.Exec(`INSERT INTO Track (id, title, artist, filename, path, fileType, bpmAnalyzed, length, bpm, year, playOrder, rating, key)
-			VALUES (?, ?, ?, ?, ?, 'mp3', 124.0, 200, 124, 2024, 3, ?, ?)`, tr.id, tr.title, tr.art, tr.title+".mp3", tr.title+".mp3", tr.rating, tr.key); err != nil {
+		if _, err := db.Exec(`INSERT INTO Track (id, title, artist, filename, path, fileType, bpmAnalyzed, length, bpm, year, playOrder, rating, key, comment)
+			VALUES (?, ?, ?, ?, ?, 'mp3', 124.0, 200, 124, 2024, 3, ?, ?, ?)`,
+			tr.id, tr.title, tr.art, tr.title+".mp3", tr.title+".mp3", tr.rating, tr.key, tr.comment); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := db.Exec(`INSERT INTO PerformanceData (trackId, trackData, quickCues, loops, activeOnLoadLoops)
@@ -370,6 +372,38 @@ func TestGlobalEditCommentTags(t *testing.T) {
 	if changed != 0 {
 		t.Errorf("second run changed %d track(s), want 0", changed)
 	}
+}
+
+// TestTracksFilterMatchesComment verifies that the search filter also matches
+// the comment field.
+func TestTracksFilterMatchesComment(t *testing.T) {
+	a := NewApp(buildTestLibrary(t))
+	defer a.lib.Close()
+
+	for _, f := range []string{"#atag", "#cued", "atag"} {
+		tracks, err := a.lib.Tracks(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(tracks) != 1 || tracks[0].ID != 5 {
+			t.Errorf("filter %q: got %d track(s) (first id %v), want track 5", f, len(tracks), firstID(tracks))
+		}
+	}
+	// Non-matching comment → nothing.
+	if tracks, _ := a.lib.Tracks("#nosuchtag"); len(tracks) != 0 {
+		t.Errorf("filter #nosuchtag returned %d tracks, want 0", len(tracks))
+	}
+	// Empty filter → everything.
+	if tracks, _ := a.lib.Tracks(""); len(tracks) != 2 {
+		t.Errorf("empty filter returned %d tracks, want 2", len(tracks))
+	}
+}
+
+func firstID(tracks []TrackRecord) any {
+	if len(tracks) == 0 {
+		return nil
+	}
+	return tracks[0].ID
 }
 
 // TestDriveTagsToolLoad exercises the tag editor end to end: clicking a track
