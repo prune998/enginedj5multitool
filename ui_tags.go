@@ -222,12 +222,16 @@ func (t *TagsTool) displayArt() (*MediaArt, string) {
 
 // downloadArt fetches cover art in the background; results land under the
 // frame lock so the frame function can read them safely. The search uses the
-// artist name and song title, falling back to the album.
+// bare artist name and song title — bracketed suffixes like "(Extended Mix)"
+// are stripped — falling back to the album.
 func (t *TagsTool) downloadArt(a *App, source string, rec TrackRecord) {
 	artist := firstNonEmpty(t.tags.Artist, rec.Artist)
-	title := firstNonEmpty(t.tags.Title, rec.Title)
-	album := firstNonEmpty(t.tags.Album, rec.Album)
-	if strings.TrimSpace(artist) == "" || (strings.TrimSpace(title) == "" && strings.TrimSpace(album) == "") {
+	title := stripBrackets(firstNonEmpty(t.tags.Title, rec.Title))
+	if title == "" {
+		title = strings.TrimSpace(firstNonEmpty(t.tags.Title, rec.Title))
+	}
+	album := stripBrackets(firstNonEmpty(t.tags.Album, rec.Album))
+	if strings.TrimSpace(artist) == "" || (title == "" && album == "") {
 		Toast(SymFail, "Cannot search", "No artist/title to search for.")
 		return
 	}

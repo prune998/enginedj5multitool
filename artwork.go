@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -17,6 +18,25 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 )
+
+// bracketRe matches one balanced (), {} or [] group (no nesting inside).
+var bracketRe = regexp.MustCompile(`\([^()]*\)|\{[^{}]*\}|\[[^\[\]]*\]`)
+
+// stripBrackets removes every (), {} and [] group (including the brackets)
+// from a search term — repeatedly, so nested groups are handled too — and
+// collapses the remaining whitespace. "Behind The Wheel (Extended Mix)"
+// becomes "Behind The Wheel".
+func stripBrackets(s string) string {
+	prev := s
+	for {
+		s = bracketRe.ReplaceAllString(s, " ")
+		if s == prev {
+			break
+		}
+		prev = s
+	}
+	return strings.Join(strings.Fields(s), " ")
+}
 
 // artwork.go: download cover art for a release from MusicBrainz (via the
 // Cover Art Archive) and Discogs, plus helpers to sniff and decode images.
@@ -209,7 +229,7 @@ func fetchArtDiscogs(artist, title, album, token string) (*MediaArt, error) {
 	if err != nil && strings.TrimSpace(album) != "" {
 		q := url.Values{}
 		q.Set("artist", artist)
-		q.Set("release_title", title)
+		q.Set("release_title", album)
 		cover, err = search(q)
 	}
 	if err != nil {

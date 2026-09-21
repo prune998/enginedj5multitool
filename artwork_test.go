@@ -117,6 +117,24 @@ func TestEmbeddedArtRoundTrip(t *testing.T) {
 	}
 }
 
+func TestStripBrackets(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"Behind The Wheel (Extended Mix By Fuvi Clan)", "Behind The Wheel"},
+		{"Sweet Addiction (feat. Her) (Live Edit)", "Sweet Addiction"},
+		{"Song [HQ] {2003 rip}", "Song"},
+		{"(Live) Song", "Song"},
+		{"Song (feat. X (remix))", "Song"}, // nested groups
+		{"Emotion", "Emotion"},             // unchanged
+		{"Song (((", "Song ((("},           // unmatched brackets left alone
+		{"Multiple   spaces (x) here", "Multiple spaces here"},
+	}
+	for _, tc := range cases {
+		if got := stripBrackets(tc.in); got != tc.want {
+			t.Errorf("stripBrackets(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
 func TestFetchArtMusicBrainz(t *testing.T) {
 	var caaHits int
 	var recordingQuery, releaseQuery url.Values
