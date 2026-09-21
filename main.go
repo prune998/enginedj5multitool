@@ -24,7 +24,7 @@ func main() {
 	fix := flag.Bool("fix", false, "reorder cues/loops (chronological, latest at slot 8) and apply standard slot colours")
 	dryRun := flag.Bool("dry-run", false, "with -fix: show what would change without updating the DB")
 	ui := flag.Bool("ui", false, "launch the graphical interface")
-	tool := flag.Int("tool", lc.Tool, "with -ui: tool tab to open (0 = Cues & Loops, 1 = MP3 Tags, 2 = Settings)")
+	tool := flag.Int("tool", lc.Tool, "with -ui: tool tab to open (0 = Cues & Loops, 1 = MP3 Tags, 2 = Global Edit, 3 = Settings)")
 	theme := flag.String("theme", lc.Theme, "UI theme: auto (OS default), light or dark")
 	snapshot := flag.String("snapshot", "", "render one frame of the UI headlessly to this PNG and exit")
 	showVersion := flag.Bool("version", false, "print version and exit")

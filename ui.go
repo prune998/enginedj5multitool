@@ -35,6 +35,7 @@ func RegisterTool(f func() AppTool) {
 func init() {
 	RegisterTool(func() AppTool { return &CuesTool{} })
 	RegisterTool(func() AppTool { return &TagsTool{} })
+	RegisterTool(func() AppTool { return &GlobalTool{} })
 	RegisterTool(func() AppTool { return &ConfigTool{} })
 }
 
@@ -144,6 +145,7 @@ func (a *App) RootView() {
 					return
 				}
 				a.Tools[a.ActiveTool].View(a)
+				ScrollBars()
 			})
 		})
 	})

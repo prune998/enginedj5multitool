@@ -53,6 +53,14 @@ the list scroll follow along):
   discogs.com → Settings → Developers). The search uses the **artist name and
   song title** (falling back to the album), and the downloaded art is
   previewed and embedded into the file when you press *Save changes*.
+- **Global Edit** — bulk comment maintenance for every track matching the
+  current filter: re-order the comment `#tags` alphabetically and add
+  `#cued` / `#looped` when a track has more than one cue or loop. Writes the
+  ID3 comment (preserving artwork/POPM via the padding-aware writer), can
+  sync the Engine DJ `Track.comment`, supports a dry run with a per-track
+  report, and skips files it doesn't need to touch.
+- **Settings** — edits `config.yaml` (library path, music root, Discogs
+  token, theme, browser width) with explicit Save/Reload.
 
 Other UI features:
 

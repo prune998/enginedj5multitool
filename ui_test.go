@@ -292,6 +292,86 @@ func TestDriveQuitShortcut(t *testing.T) {
 	}
 }
 
+// TestGlobalEditCommentTags runs the Global Edit tool over the test library:
+// track 5 carries the real 5-cue/3-loop fixture blobs, so it must gain
+// "#cued" and "#looped" (sorted into the comment), while track 7 (no cues,
+// no loops) stays untouched.
+func TestGlobalEditCommentTags(t *testing.T) {
+	dbPath := buildTestLibrary(t)
+	dir := filepath.Dir(dbPath)
+	mp3 := filepath.Join(dir, "Emotion.mp3")
+	mp3b := filepath.Join(dir, "Galaxy.mp3")
+	if err := os.WriteFile(mp3, bytes.Repeat([]byte{0xFF, 0xFB, 0x90, 0x00}, 256), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(mp3b, bytes.Repeat([]byte{0xFF, 0xFB, 0x90, 0x00}, 256), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	{
+		db, err := sql.Open("sqlite", dbPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer db.Close()
+		if _, err := db.Exec(`UPDATE Track SET path = ? WHERE id = 5`, mp3); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`UPDATE Track SET path = ? WHERE id = 7`, mp3b); err != nil {
+			t.Fatal(err)
+		}
+		// Real performance blobs: 5 cues + 3 loops on track 5.
+		if _, err := db.Exec(`UPDATE PerformanceData SET quickCues = ?, loops = ? WHERE trackId = 5`,
+			mustHex(t, fixtTrack5QuickCues), mustHex(t, fixtTrack5Loops)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	a := NewApp(dbPath)
+	// Seed the file comment (unsorted, with a non-tag word).
+	if err := SaveMediaTags(mp3, MediaTags{Title: "Emotion", Comment: "#ztag some note #atag"}); err != nil {
+		t.Fatal(err)
+	}
+
+	g := a.Tools[2].(*GlobalTool)
+	g.sortTags, g.addTags, g.alsoDB = true, true, true
+	g.dryRun = false
+	changed, unchanged, failed, skipped := g.Apply(a)
+
+	if changed != 1 || unchanged != 1 || failed != 0 || skipped != 0 {
+		t.Fatalf("apply: changed=%d unchanged=%d failed=%d skipped=%d", changed, unchanged, failed, skipped)
+	}
+
+	// File comment: tags sorted, #cued + #looped added, non-tag words kept.
+	tags, err := ReadMediaTags(mp3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "#atag #cued #looped #ztag some note"
+	if tags.Comment != want {
+		t.Errorf("file comment = %q, want %q", tags.Comment, want)
+	}
+
+	// DB comment synced as well.
+	db, err := sql.Open("sqlite", dbPath+"?mode=ro")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var dbComment string
+	if err := db.QueryRow(`SELECT comment FROM Track WHERE id = 5`).Scan(&dbComment); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	if dbComment != want {
+		t.Errorf("DB comment = %q, want %q", dbComment, want)
+	}
+
+	// A second run is a no-op (already sorted, tags present).
+	changed, _, _, _ = g.Apply(a)
+	if changed != 0 {
+		t.Errorf("second run changed %d track(s), want 0", changed)
+	}
+}
+
 // TestDriveTagsToolLoad exercises the tag editor end to end: clicking a track
 // loads its ID3v2 tags from the file into the form.
 func TestDriveTagsToolLoad(t *testing.T) {
