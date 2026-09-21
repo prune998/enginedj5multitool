@@ -90,14 +90,14 @@ func (t *TagsTool) EditorPanel(a *App) {
 			a.L(fmt.Sprintf("#%d  %s — %s", rec.ID, rec.Artist, rec.Title), FontWeight(WeightBold))
 		})
 		if t.pathErr != "" {
-			a.L(t.pathErr, FontSize(11), TextColor(0, 70, 40, 1))
+			a.errorText(t.pathErr, a.paneTextWidth())
 		} else {
 			a.L(t.path, FontSize(11), TextColorVec(a.pal().textDim))
 		}
 	})
 
 	if t.readErr != "" {
-		a.L("Error: "+t.readErr, TextColor(0, 70, 40, 1))
+		a.errorText("Error: "+t.readErr, a.paneTextWidth())
 		return
 	}
 	if !IsMP3(rec) {
@@ -200,7 +200,7 @@ func (t *TagsTool) ArtworkPanel(a *App, rec TrackRecord) {
 					a.L("Searching "+t.artBusy+"…", FontSize(12), TextColorVec(p.textDim))
 				})
 			} else if t.artErr != "" {
-				a.L(t.artErr, FontSize(12), TextColor(0, 70, 40, 1))
+				a.errorText(t.artErr, a.paneTextWidth())
 			} else if t.discogsToken == "" {
 				a.L("Discogs downloads need a personal access token — set it in Settings.",
 					FontSize(11), TextColorVec(p.textDim))

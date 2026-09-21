@@ -23,8 +23,10 @@ type palette struct {
 	rowSel      Vec4
 	rowSelHover Vec4
 
-	text    Vec4
-	textDim Vec4
+	text      Vec4
+	textDim   Vec4
+	textError Vec4
+	textOk    Vec4
 
 	inputFace        Vec4
 	inputBorder      Vec4
@@ -52,8 +54,10 @@ var lightPalette = palette{
 	rowSel:      Vec4{204, 70, 85, 1},
 	rowSelHover: Vec4{204, 70, 76, 1},
 
-	text:    Vec4{0, 0, 15, 1},
-	textDim: Vec4{220, 8, 40, 1},
+	text:      Vec4{0, 0, 15, 1},
+	textDim:   Vec4{220, 8, 40, 1},
+	textError: Vec4{0, 70, 36, 1},
+	textOk:    Vec4{140, 55, 30, 1},
 
 	inputFace:        Vec4{0, 0, 100, 1},
 	inputBorder:      Vec4{0, 0, 0, 0.16},
@@ -81,8 +85,10 @@ var darkPalette = palette{
 	rowSel:      Vec4{204, 45, 30, 1},
 	rowSelHover: Vec4{204, 45, 38, 1},
 
-	text:    Vec4{0, 0, 90, 1},
-	textDim: Vec4{220, 8, 62, 1},
+	text:      Vec4{0, 0, 90, 1},
+	textDim:   Vec4{220, 8, 62, 1},
+	textError: Vec4{4, 78, 66, 1},
+	textOk:    Vec4{140, 55, 62, 1},
 
 	inputFace:        Vec4{220, 10, 24, 1},
 	inputBorder:      Vec4{220, 8, 55, 0.45},
@@ -123,6 +129,53 @@ func (a *App) pal() palette {
 // explicit TextColor mods passed by the caller override it.
 func (a *App) L(text string, mods ...TextStyleFn) {
 	Label(text, append([]TextStyleFn{TextColorVec(a.pal().text)}, mods...)...)
+}
+
+// reportLine is one line of a tool run report; style picks the ink: "" is
+// the normal text color, "err" the error color, "ok" the success color.
+type reportLine struct {
+	text  string
+	style string
+}
+
+// paneTextWidth returns the usable text width of the tool's right pane.
+func (a *App) paneTextWidth() float32 {
+	w := a.splitRowRect.Size[0] - a.splitW - 10 - 20 // splitter + padding
+	if w < 200 {
+		w = 600
+	}
+	return w
+}
+
+// wrappedText renders a themed label soft-wrapped to the given max width
+// (shirei labels only wrap when their container carries a MaxWidth).
+func (a *App) wrappedText(text string, maxWidth float32, mods ...TextStyleFn) {
+	Container(Attrs(Expand, MaxWidth(maxWidth)), func() {
+		a.L(text, mods...)
+	})
+}
+
+// errorText renders an error message in the theme's error color, soft-wrapped
+// to the given max width.
+func (a *App) errorText(text string, maxWidth float32) {
+	a.wrappedText(text, maxWidth, FontSize(12), TextColorVec(a.pal().textError))
+}
+
+// reportLines renders run-report lines, wrapping each to the pane width and
+// coloring them by style.
+func (a *App) reportLines(lines []reportLine, maxWidth float32) {
+	for _, ln := range lines {
+		switch ln.style {
+		case "err":
+			a.errorText(ln.text, maxWidth)
+		case "ok":
+			a.wrappedText(ln.text, maxWidth, FontSize(12), TextColorVec(a.pal().textOk))
+		case "dim":
+			a.wrappedText(ln.text, maxWidth, FontSize(12), TextColorVec(a.pal().textDim))
+		default:
+			a.wrappedText(ln.text, maxWidth, FontSize(12))
+		}
+	}
 }
 
 // input is a themed replacement for widgets.TextInput / widgets.TextInputExt:

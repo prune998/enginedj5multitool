@@ -9,6 +9,24 @@ import (
 	"context"
 )
 
+const deletePerformanceData = `-- name: DeletePerformanceData :exec
+DELETE FROM PerformanceData WHERE trackId = ?1
+`
+
+func (q *Queries) DeletePerformanceData(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, deletePerformanceData, id)
+	return err
+}
+
+const deleteTrack = `-- name: DeleteTrack :exec
+DELETE FROM Track WHERE id = ?1
+`
+
+func (q *Queries) DeleteTrack(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, deleteTrack, id)
+	return err
+}
+
 const getPerformanceData = `-- name: GetPerformanceData :one
 SELECT
 	trackData AS track_data,
@@ -54,6 +72,7 @@ SELECT
 	COALESCE(playOrder, 0) AS play_order,
 	COALESCE(rating, 0) AS rating,
 	COALESCE("key", -1) AS "key",
+	COALESCE(fileBytes, 0) AS file_bytes,
 	COALESCE(length, 0) AS length
 FROM Track
 WHERE (
@@ -81,6 +100,7 @@ type ListTracksRow struct {
 	PlayOrder int64
 	Rating    int64
 	Key       int64
+	FileBytes int64
 	Length    int64
 }
 
@@ -108,6 +128,7 @@ func (q *Queries) ListTracks(ctx context.Context, filter interface{}) ([]ListTra
 			&i.PlayOrder,
 			&i.Rating,
 			&i.Key,
+			&i.FileBytes,
 			&i.Length,
 		); err != nil {
 			return nil, err
@@ -225,5 +246,19 @@ func (q *Queries) UpdateTrackMetadata(ctx context.Context, arg UpdateTrackMetada
 		arg.Year,
 		arg.ID,
 	)
+	return err
+}
+
+const updateTrackPath = `-- name: UpdateTrackPath :exec
+UPDATE Track SET path = ?1 WHERE id = ?2
+`
+
+type UpdateTrackPathParams struct {
+	Path string
+	ID   int64
+}
+
+func (q *Queries) UpdateTrackPath(ctx context.Context, arg UpdateTrackPathParams) error {
+	_, err := q.db.ExecContext(ctx, updateTrackPath, arg.Path, arg.ID)
 	return err
 }

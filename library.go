@@ -201,6 +201,24 @@ func (l *Library) SetTrackRating(id int64, rating int64) error {
 	})
 }
 
+// SetTrackPath points a track at a new audio file location (relink).
+func (l *Library) SetTrackPath(id int64, path string) error {
+	return l.q.UpdateTrackPath(context.Background(), db.UpdateTrackPathParams{
+		Path: path,
+		ID:   id,
+	})
+}
+
+// DeleteTrack removes a track and its performance data from the library
+// (used by the Relink tool for tracks whose audio file is gone for good).
+func (l *Library) DeleteTrack(id int64) error {
+	ctx := context.Background()
+	if err := l.q.DeletePerformanceData(ctx, id); err != nil {
+		return err
+	}
+	return l.q.DeleteTrack(ctx, id)
+}
+
 func parseYear(s string) (int64, bool) {
 	s = strings.TrimSpace(s)
 	if s == "" {

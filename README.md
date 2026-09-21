@@ -59,6 +59,11 @@ the list scroll follow along):
   ID3 comment (preserving artwork/POPM via the padding-aware writer), can
   sync the Engine DJ `Track.comment`, supports a dry run with a per-track
   report, and skips files it doesn't need to touch.
+- **Relink** — scans the library for tracks whose audio file is missing and
+  searches a root folder (defaulting to the Music app folder) for the moved
+  file — matching on file name, artist, album, title and file size — then
+  points `Track.path` at the new location. Ambiguous matches are reported
+  instead of guessed.
 - **Settings** — edits `config.yaml` (library path, music root, Discogs
   token, theme, browser width) with explicit Save/Reload.
 

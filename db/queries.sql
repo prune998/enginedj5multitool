@@ -15,6 +15,7 @@ SELECT
 	COALESCE(playOrder, 0) AS play_order,
 	COALESCE(rating, 0) AS rating,
 	COALESCE("key", -1) AS "key",
+	COALESCE(fileBytes, 0) AS file_bytes,
 	COALESCE(length, 0) AS length
 FROM Track
 WHERE (
@@ -55,6 +56,15 @@ WHERE trackId = sqlc.arg('track_id');
 
 -- name: SetTrackRating :exec
 UPDATE Track SET rating = sqlc.arg('rating') WHERE id = sqlc.arg('id');
+
+-- name: UpdateTrackPath :exec
+UPDATE Track SET path = sqlc.arg('path') WHERE id = sqlc.arg('id');
+
+-- name: DeletePerformanceData :exec
+DELETE FROM PerformanceData WHERE trackId = sqlc.arg('id');
+
+-- name: DeleteTrack :exec
+DELETE FROM Track WHERE id = sqlc.arg('id');
 
 -- name: UpdateTrackMetadata :exec
 UPDATE Track

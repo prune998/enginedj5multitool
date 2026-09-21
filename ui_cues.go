@@ -81,7 +81,7 @@ func (t *CuesTool) DetailPanel(a *App) {
 		return
 	}
 	if t.loadErr != "" {
-		a.L("Error: "+t.loadErr, TextColor(0, 70, 40, 1))
+		a.errorText("Error: "+t.loadErr, a.paneTextWidth())
 		return
 	}
 	if t.detail == nil {

@@ -27,7 +27,7 @@ type globalReport struct {
 	unchanged int
 	failed    int
 	skipped   int
-	examples  []string
+	lines     []reportLine
 }
 
 func (t *GlobalTool) Name() string    { return "Global Edit" }
@@ -81,7 +81,7 @@ func (t *GlobalTool) Apply(a *App) (changed, unchanged, failed, skipped int) {
 		d, err := a.lib.LoadDetail(rec)
 		if err != nil {
 			failed++
-			rep.examples = append(rep.examples, fmt.Sprintf("#%d: %v", rec.ID, err))
+			rep.lines = append(rep.lines, reportLine{fmt.Sprintf("#%d: %v", rec.ID, err), "err"})
 			continue
 		}
 		addApplicable := t.addTags && (countSetCues(d) > 1 || countSetLoops(d) > 1)
@@ -94,13 +94,13 @@ func (t *GlobalTool) Apply(a *App) (changed, unchanged, failed, skipped int) {
 		path := ResolveMediaPath(a.lib.Dir, a.MusicRoot, rec.Path)
 		if st, err := os.Stat(path); err != nil || st.IsDir() {
 			failed++
-			rep.examples = append(rep.examples, fmt.Sprintf("#%d: file not found", rec.ID))
+			rep.lines = append(rep.lines, reportLine{fmt.Sprintf("#%d: file not found", rec.ID), "err"})
 			continue
 		}
 		tags, err := ReadMediaTags(path)
 		if err != nil {
 			failed++
-			rep.examples = append(rep.examples, fmt.Sprintf("#%d: unreadable tags", rec.ID))
+			rep.lines = append(rep.lines, reportLine{fmt.Sprintf("#%d: unreadable tags", rec.ID), "err"})
 			continue
 		}
 
@@ -133,7 +133,7 @@ func (t *GlobalTool) Apply(a *App) (changed, unchanged, failed, skipped int) {
 
 		if t.dryRun {
 			changed++
-			rep.examples = append(rep.examples, fmt.Sprintf("#%d: %s → %q", rec.ID, strings.Join(notes, ", "), newComment))
+			rep.lines = append(rep.lines, reportLine{fmt.Sprintf("#%d: %s → %q", rec.ID, strings.Join(notes, ", "), newComment), ""})
 			continue
 		}
 
@@ -141,19 +141,19 @@ func (t *GlobalTool) Apply(a *App) (changed, unchanged, failed, skipped int) {
 		rating := rec.Rating
 		if err := SaveMediaTagsFull(path, tags, nil, &rating); err != nil {
 			failed++
-			rep.examples = append(rep.examples, fmt.Sprintf("#%d: write failed: %v", rec.ID, err))
+			rep.lines = append(rep.lines, reportLine{fmt.Sprintf("#%d: write failed: %v", rec.ID, err), "err"})
 			continue
 		}
 		if t.alsoDB {
 			if err := a.lib.UpdateTrackMetadata(rec.ID, tags); err != nil {
 				failed++
-				rep.examples = append(rep.examples, fmt.Sprintf("#%d: DB sync failed: %v", rec.ID, err))
+				rep.lines = append(rep.lines, reportLine{fmt.Sprintf("#%d: DB sync failed: %v", rec.ID, err), "err"})
 				continue
 			}
 		}
 		changed++
-		if len(rep.examples) < 12 {
-			rep.examples = append(rep.examples, fmt.Sprintf("#%d: %s → %q", rec.ID, strings.Join(notes, ", "), newComment))
+		if len(rep.lines) < 12 {
+			rep.lines = append(rep.lines, reportLine{fmt.Sprintf("#%d: %s → %q", rec.ID, strings.Join(notes, ", "), newComment), ""})
 		}
 	}
 	rep.changed, rep.unchanged, rep.failed, rep.skipped = changed, unchanged, failed, skipped
@@ -176,9 +176,7 @@ func (t *GlobalTool) ReportPanel(a *App) {
 	a.L(fmt.Sprintf("%d track(s) %s, %d already clean, %d failed, %d skipped (non-MP3).",
 		rep.changed, verb, rep.unchanged, rep.failed, rep.skipped),
 		FontSize(12), TextColorVec(p.textDim))
-	for _, line := range rep.examples {
-		a.L(line, FontSize(12))
-	}
+	a.reportLines(rep.lines, a.paneTextWidth())
 	if rep.dryRun && rep.changed > 0 {
 		a.L("Dry run — nothing written. Uncheck Dry run to apply.", FontSize(12), TextColorVec(p.textDim))
 	}

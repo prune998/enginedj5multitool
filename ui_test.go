@@ -29,7 +29,7 @@ func buildTestLibrary(t *testing.T) string {
 		id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, artist TEXT, album TEXT,
 		filename TEXT, path TEXT, fileType TEXT, bpmAnalyzed REAL, length INTEGER,
 		bpm INTEGER, year INTEGER, playOrder INTEGER, genre TEXT, comment TEXT, composer TEXT,
-		rating INTEGER, key INTEGER
+		rating INTEGER, key INTEGER, fileBytes INTEGER
 	);
 	CREATE TABLE PerformanceData (
 		trackId INTEGER PRIMARY KEY, trackData BLOB, quickCues BLOB, loops BLOB, activeOnLoadLoops INTEGER
@@ -38,20 +38,21 @@ func buildTestLibrary(t *testing.T) string {
 		t.Fatal(err)
 	}
 	tracks := []struct {
-		id      int64
-		title   string
-		art     string
-		rating  int64
-		key     int64
-		comment string
+		id        int64
+		title     string
+		art       string
+		rating    int64
+		key       int64
+		comment   string
+		fileBytes int64
 	}{
-		{5, "Emotion", "Purple Disco Machine", 20, 10, "#atag #cued"}, // 10 = 1B (B major)
-		{7, "Galaxy", "Alex Metric", 0, -1, ""},                       // no key
+		{5, "Emotion", "Purple Disco Machine", 20, 10, "#atag #cued", 1024}, // 10 = 1B (B major)
+		{7, "Galaxy", "Alex Metric", 0, -1, "", 2048},                       // no key
 	}
 	for _, tr := range tracks {
-		if _, err := db.Exec(`INSERT INTO Track (id, title, artist, filename, path, fileType, bpmAnalyzed, length, bpm, year, playOrder, rating, key, comment)
-			VALUES (?, ?, ?, ?, ?, 'mp3', 124.0, 200, 124, 2024, 3, ?, ?, ?)`,
-			tr.id, tr.title, tr.art, tr.title+".mp3", tr.title+".mp3", tr.rating, tr.key, tr.comment); err != nil {
+		if _, err := db.Exec(`INSERT INTO Track (id, title, artist, filename, path, fileType, bpmAnalyzed, length, bpm, year, playOrder, rating, key, comment, fileBytes)
+			VALUES (?, ?, ?, ?, ?, 'mp3', 124.0, 200, 124, 2024, 3, ?, ?, ?, ?)`,
+			tr.id, tr.title, tr.art, tr.title+".mp3", tr.title+".mp3", tr.rating, tr.key, tr.comment, tr.fileBytes); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := db.Exec(`INSERT INTO PerformanceData (trackId, trackData, quickCues, loops, activeOnLoadLoops)
