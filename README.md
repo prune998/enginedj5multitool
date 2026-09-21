@@ -286,9 +286,12 @@ browser_width: 560       # track list width
 discogs_token: ""        # personal access token for artwork search
 ```
 
-Command-line flags override the file's values. Settings you change in the UI
-(theme, tool tab, browser width, Discogs token, last library) are written back
-on exit — unless the file was malformed, in which case it is never touched.
+Command-line flags override the file's values. The file is edited via the
+**Settings** tool in the sidebar: edit the values and press *Save to
+config.yaml* — they are applied to the running session and written to disk
+(*Reload from file* re-reads it). Changes made elsewhere in the UI (theme
+selector, splitter, library path, tag edits) are session-only and never
+written to the config file.
 
 ## CI / Releases
 

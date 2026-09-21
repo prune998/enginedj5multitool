@@ -5,7 +5,6 @@ import (
 	"os"
 	"sort"
 
-	generic "go.hasen.dev/generic"
 	. "go.hasen.dev/shirei"
 	app "go.hasen.dev/shirei/app"
 	. "go.hasen.dev/shirei/widgets"
@@ -34,6 +33,7 @@ func RegisterTool(f func() AppTool) {
 func init() {
 	RegisterTool(func() AppTool { return &CuesTool{} })
 	RegisterTool(func() AppTool { return &TagsTool{} })
+	RegisterTool(func() AppTool { return &ConfigTool{} })
 }
 
 // App is the shared application state: database handle, track list, and the
@@ -73,8 +73,7 @@ type App struct {
 
 	onQuit func() // test hook; defaults to app.Quit
 
-	cfgPath     string // config.yaml path (set for the UI session)
-	cfgWritable bool   // config loaded cleanly → safe to rewrite on exit
+	cfgPath string // config.yaml path (shown/edited by the Settings tool)
 }
 
 const (
@@ -507,12 +506,7 @@ func runUI(lc LoadedConfig, snapshotPath string, filter string) {
 		a.Refresh()
 	}
 	if snapshotPath == "" {
-		// Persist the session's settings when the app exits (any quit path:
-		// window close, Cmd-Q, app.Quit) — but only when the config file was
-		// usable at startup, so a malformed file is never clobbered.
 		a.cfgPath = lc.Path
-		a.cfgWritable = lc.Err == nil
-		generic.AddExitCleanup(func() { a.persistConfig() })
 		app.SetupWindow("Engine DJ Multi Tool", 1180, 740)
 		app.Run(a.RootView)
 		return
@@ -524,26 +518,5 @@ func runUI(lc LoadedConfig, snapshotPath string, filter string) {
 	if err := RenderToPNG(snapshotPath, 1180, 740, a.RootView); err != nil {
 		fmt.Fprintf(os.Stderr, "error: snapshot: %v\n", err)
 		os.Exit(1)
-	}
-}
-
-// persistConfig rewrites config.yaml with the session's settings (theme,
-// tool, browser width, Discogs token).
-func (a *App) persistConfig() {
-	if !a.cfgWritable || a.cfgPath == "" {
-		return
-	}
-	cfg := Config{
-		Library:      a.DBPath,
-		MusicRoot:    a.MusicRoot,
-		Theme:        a.Theme,
-		Tool:         a.ActiveTool,
-		BrowserWidth: a.splitW,
-	}
-	if tags, ok := a.Tools[1].(*TagsTool); ok {
-		cfg.DiscogsToken = tags.discogsToken
-	}
-	if err := SaveConfigFile(a.cfgPath, cfg); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: could not save config: %v\n", err)
 	}
 }

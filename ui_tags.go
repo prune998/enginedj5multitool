@@ -156,23 +156,17 @@ func (t *TagsTool) ArtworkPanel(a *App, rec TrackRecord) {
 					t.downloadArt(a, "Discogs", rec)
 				}
 			})
-			Container(Attrs(Row, CrossMid, Gap(8)), func() {
-				a.L("Discogs token", FontSize(11), TextColorVec(p.textDim))
-				Container(Attrs(Grow(1), MaxWidth(320)), func() {
-					at := DefaultTextInputAttrs()
-					at.Placeholder = "personal access token"
-					a.input(&t.discogsToken, at)
-				})
-			})
 
-			switch {
-			case t.artBusy != "":
+			if t.artBusy != "" {
 				Container(Attrs(Row, CrossMid, Gap(6)), func() {
 					BusyDots()
 					a.L("Searching "+t.artBusy+"…", FontSize(12), TextColorVec(p.textDim))
 				})
-			case t.artErr != "":
+			} else if t.artErr != "" {
 				a.L(t.artErr, FontSize(12), TextColor(0, 70, 40, 1))
+			} else if t.discogsToken == "" {
+				a.L("Discogs downloads need a personal access token — set it in Settings.",
+					FontSize(11), TextColorVec(p.textDim))
 			}
 		})
 	})
