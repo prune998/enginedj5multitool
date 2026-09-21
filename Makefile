@@ -25,6 +25,9 @@ vet: ## Run go vet
 fmt: ## Format all Go files
 	gofmt -w .
 
+sqlc: ## Regenerate the db package from db/schema.sql + db/queries.sql
+	sqlc generate
+
 fmtcheck: ## Fail if any Go file is unformatted
 	@out=$$(gofmt -l .); if [ -n "$$out" ]; then echo "unformatted files:"; echo "$$out"; exit 1; fi
 

@@ -169,13 +169,16 @@ The code is split so new tools are easy to add:
 
 | File           | Responsibility                                                                 |
 |----------------|--------------------------------------------------------------------------------|
+| `db/`          | **sqlc-generated data access**: `schema.sql` + `queries.sql` are the source of truth — run `make sqlc` (or `sqlc generate`) after editing them; never edit `models.go`/`queries.sql.go` by hand |
 | `perfdata.go`  | Engine DJ v5 blob parsing/serialization (`quickCues`, `loops`, `trackData`) and the cue/loop fix computation |
 | `library.go`   | Database access (`Library`, `TrackRecord`), path resolution, fix persistence, DB metadata sync |
 | `mp3tags.go`   | ID3v2 read/write (`MediaTags`) via [bogem/id3v2/v2](https://pkg.go.dev/github.com/bogem/id3v2/v2) |
+| `artwork.go`   | Cover-art download from MusicBrainz / Cover Art Archive / Discogs |
 | `main.go`      | CLI entry: display mode and fix mode (same code paths as the GUI)               |
 | `ui.go`        | shirei app shell: top bar, sidebar, shared track browser, **tool registry**      |
 | `ui_cues.go`   | The *Cues & Loops* tool                                                          |
 | `ui_tags.go`   | The *MP3 Tags* tool                                                              |
+| `ui_config.go` | The *Settings* tool (config.yaml editor)                                         |
 
 To add a tool, implement the `AppTool` interface (`Name`, `Icon`, `View(a *App)`)
 in a new file and register it:

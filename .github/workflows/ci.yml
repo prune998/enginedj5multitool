@@ -61,3 +61,8 @@ jobs:
           name: dist
           path: dist/*
           retention-days: 14
+      - name: Check sqlc generated code is up to date
+        run: |
+          go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1
+          sqlc generate
+          git diff --exit-code db/
