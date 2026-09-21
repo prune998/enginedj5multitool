@@ -58,6 +58,10 @@ type App struct {
 	splitW       float32 // browser width; 0 = default
 	splitRowRect Rect
 
+	// Small-field row of the tags form: captured row width drives the
+	// Genre field width so the row always fits exactly.
+	formRowRect Rect
+
 	onQuit func() // test hook; defaults to app.Quit
 }
 
@@ -229,6 +233,21 @@ func (a *App) Sidebar() {
 // uses it to convert mouse X into the browser panel width.
 func (a *App) captureSplitRow() {
 	a.splitRowRect = GetScreenRect()
+}
+
+// captureFormRow records the screen rect of the tags form's small-field row.
+func (a *App) captureFormRow() {
+	a.formRowRect = GetScreenRect()
+}
+
+// genreFieldWidth computes the Genre input width as the row width left over
+// after the data-sized Year/Track/Disc/BPM fields and the gaps.
+func (a *App) genreFieldWidth(others float32) float32 {
+	w := a.formRowRect.Size[0] - others - 4*8 - 2 // gaps + rounding buffer
+	if w < 120 {
+		w = 120
+	}
+	return w
 }
 
 func (a *App) splitWidth() float32 {

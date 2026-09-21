@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"os"
+	"sort"
+	"strconv"
 	"strings"
 
 	. "go.hasen.dev/shirei"
@@ -123,25 +125,79 @@ func (t *TagsTool) ensureLoaded(a *App, rec TrackRecord) {
 	t.tags = tags
 }
 
-// Form renders the editable tag fields. Every input spans the full panel
-// width for better readability.
+// Form renders the editable tag fields. Title/Artist/Album/Composer span the
+// full panel width; Genre, Year, Track #, Disc # and BPM share one row with
+// widths derived from the data actually present in the library database.
 func (t *TagsTool) Form(a *App) {
+	yearW, trackW, discW, bpmW := t.smallFieldWidths(a)
 	Container(Attrs(Expand, Gap(8)), func() {
 		t.fieldFull(a, "Title", &t.tags.Title)
 		t.fieldFull(a, "Artist", &t.tags.Artist)
 		t.fieldFull(a, "Album", &t.tags.Album)
 		t.fieldFull(a, "Album artist", &t.tags.AlbumArtist)
-		t.fieldFull(a, "Genre", &t.tags.Genre)
-		t.fieldFull(a, "Year", &t.tags.Year)
-		t.fieldFull(a, "Track #", &t.tags.Track)
-		t.fieldFull(a, "Disc #", &t.tags.Disc)
 		t.fieldFull(a, "Composer", &t.tags.Composer)
-		t.fieldFull(a, "BPM", &t.tags.BPM)
+		Container(Attrs(Row, Expand, Gap(8)), func() {
+			a.captureFormRow()
+			genreW := a.genreFieldWidth(yearW + trackW + discW + bpmW)
+			Container(Attrs(FixWidth(genreW), Gap(2)), func() {
+				a.L("Genre", FontSize(11), TextColorVec(a.pal().textDim))
+				at := DefaultTextInputAttrs()
+				at.MinWidth = genreW
+				a.input(&t.tags.Genre, at)
+			})
+			t.fixedField(a, "Year", &t.tags.Year, yearW)
+			t.fixedField(a, "Track #", &t.tags.Track, trackW)
+			t.fixedField(a, "Disc #", &t.tags.Disc, discW)
+			t.fixedField(a, "BPM", &t.tags.BPM, bpmW)
+		})
 		Container(Attrs(Expand, Gap(2)), func() {
 			a.L("Comment", FontSize(11), TextColorVec(a.pal().textDim))
 			a.textArea(&t.tags.Comment)
 		})
 	})
+}
+
+// smallFieldWidths derives input widths for Year / Track # / Disc # / BPM
+// from the widest value found in the loaded library rows (the DB data), so
+// the fields are exactly as wide as their content needs to be.
+func (t *TagsTool) smallFieldWidths(a *App) (year, track, disc, bpm float32) {
+	maxYear, maxTrack, maxDisc, maxBPM := 0, 0, 0, 0
+	for _, r := range a.Tracks {
+		if l := digitsLen(r.Year); l > maxYear {
+			maxYear = l
+		}
+		if l := digitsLen(r.PlayOrder); l > maxTrack {
+			maxTrack = l
+		}
+		if l := digitsLen(r.BPMFile); l > maxBPM {
+			maxBPM = l
+		}
+	}
+	// Disc # has no dedicated DB column; the common "1".."9" is a good basis.
+	if maxDisc < 1 {
+		maxDisc = 1
+	}
+	return dataWidth(maxYear), dataWidth(maxTrack), dataWidth(maxDisc), dataWidth(maxBPM)
+}
+
+func digitsLen(n int64) int {
+	if n <= 0 {
+		return 0
+	}
+	return len(strconv.FormatInt(n, 10))
+}
+
+// dataWidth converts a max character count into an input width, with a
+// floor for readability and a cap so fields never balloon.
+func dataWidth(chars int) float32 {
+	w := 30 + float32(chars)*9
+	if w < 58 {
+		w = 58
+	}
+	if w > 120 {
+		w = 120
+	}
+	return w
 }
 
 // fieldFull renders a label + themed input spanning the full panel width.
@@ -150,6 +206,27 @@ func (t *TagsTool) fieldFull(a *App, label string, buf *string) {
 		a.L(label, FontSize(11), TextColorVec(a.pal().textDim))
 		a.input(buf, DefaultTextInputAttrs())
 	})
+}
+
+// fixedField renders a label + themed input sized to its data (fixed width).
+func (t *TagsTool) fixedField(a *App, label string, buf *string, w float32) {
+	Container(Attrs(FixWidth(w), Gap(2)), func() {
+		NextAccessName("field-" + sanitizeAccess(label))
+		AssignAccess()
+		a.L(label, FontSize(11), TextColorVec(a.pal().textDim))
+		at := DefaultTextInputAttrs()
+		at.MinWidth = w
+		a.input(buf, at)
+	})
+}
+
+func sanitizeAccess(label string) string {
+	return strings.Map(func(r rune) rune {
+		if r == ' ' || r == '#' {
+			return -1
+		}
+		return r
+	}, label)
 }
 
 // parseHashTags extracts the unique #tags of a comment, in order of
@@ -233,6 +310,9 @@ func (t *TagsTool) TagBubbles(a *App) {
 				t.tags.Comment = addTag(t.tags.Comment, strings.TrimSpace(strings.TrimPrefix(t.newTag, "#")))
 				t.newTag = ""
 			}
+			if CtrlButton(TypArrowSortedDown, "Sort tags", len(parseHashTags(t.tags.Comment)) > 1) {
+				t.tags.Comment = sortCommentTags(t.tags.Comment)
+			}
 		})
 	})
 }
@@ -249,6 +329,65 @@ func hoverLightnessFor(a *App) float32 {
 		return 40
 	}
 	return 72
+}
+
+// naturalLess compares two tag names (without '#') using natural order:
+// runs of digits compare numerically, so "#9aaa" sorts before "#92test".
+// Comparison is case-insensitive.
+func naturalLess(a, b string) bool {
+	a, b = strings.ToLower(a), strings.ToLower(b)
+	i, j := 0, 0
+	for i < len(a) && j < len(b) {
+		ca, cb := a[i], b[j]
+		if isDigitByte(ca) && isDigitByte(cb) {
+			si, sj := i, j
+			for i < len(a) && isDigitByte(a[i]) {
+				i++
+			}
+			for j < len(b) && isDigitByte(b[j]) {
+				j++
+			}
+			// Numeric compare: strip leading zeros, then shorter run wins;
+			// equal length decides byte-wise (both are digit strings).
+			ta := strings.TrimLeft(a[si:i], "0")
+			tb := strings.TrimLeft(b[sj:j], "0")
+			if len(ta) != len(tb) {
+				return len(ta) < len(tb)
+			}
+			if ta != tb {
+				return ta < tb
+			}
+			continue
+		}
+		if ca != cb {
+			return ca < cb
+		}
+		i++
+		j++
+	}
+	// Prefix case: the shorter name sorts first.
+	return len(a)-i < len(b)-j
+}
+
+func isDigitByte(c byte) bool { return c >= '0' && c <= '9' }
+
+// sortCommentTags reorders the #tags of a comment in natural alphabetical
+// order (numeric runs in numeric order: #9aaa before #92test). Non-tag words
+// keep their relative order after the sorted tags.
+func sortCommentTags(comment string) string {
+	fields := strings.Fields(comment)
+	var tags, rest []string
+	for _, tok := range fields {
+		if len(tok) > 1 && tok[0] == '#' {
+			tags = append(tags, tok)
+		} else {
+			rest = append(rest, tok)
+		}
+	}
+	sort.SliceStable(tags, func(i, j int) bool {
+		return naturalLess(strings.TrimLeft(tags[i], "#"), strings.TrimLeft(tags[j], "#"))
+	})
+	return strings.Join(append(tags, rest...), " ")
 }
 
 // SaveRow shows the save controls and DB-sync toggle.

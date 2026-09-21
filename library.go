@@ -12,15 +12,18 @@ import (
 
 // TrackRecord is a row of the Track table (without performance blobs).
 type TrackRecord struct {
-	ID       int64
-	Title    string
-	Artist   string
-	Album    string
-	Filename string
-	Path     string
-	FileType string
-	BPM      float64
-	Length   int64
+	ID        int64
+	Title     string
+	Artist    string
+	Album     string
+	Filename  string
+	Path      string
+	FileType  string
+	BPM       float64 // bpmAnalyzed
+	BPMFile   int64   // bpm from the file metadata
+	Year      int64
+	PlayOrder int64 // track number
+	Length    int64 // seconds
 }
 
 // Library wraps an Engine DJ m.db database.
@@ -70,7 +73,8 @@ func (l *Library) Close() error {
 func (l *Library) Tracks(filter string) ([]TrackRecord, error) {
 	query := `
 		SELECT id, IFNULL(title,''), IFNULL(artist,''), IFNULL(album,''), IFNULL(filename,''),
-		       IFNULL(path,''), IFNULL(fileType,''), IFNULL(bpmAnalyzed,0), IFNULL(length,0)
+		       IFNULL(path,''), IFNULL(fileType,''), IFNULL(bpmAnalyzed,0), IFNULL(bpm,0),
+		       IFNULL(year,0), IFNULL(playOrder,0), IFNULL(length,0)
 		FROM Track`
 	var args []any
 	if s := strings.TrimSpace(filter); s != "" {
@@ -90,7 +94,7 @@ func (l *Library) Tracks(filter string) ([]TrackRecord, error) {
 	for rows.Next() {
 		var r TrackRecord
 		if err := rows.Scan(&r.ID, &r.Title, &r.Artist, &r.Album, &r.Filename,
-			&r.Path, &r.FileType, &r.BPM, &r.Length); err != nil {
+			&r.Path, &r.FileType, &r.BPM, &r.BPMFile, &r.Year, &r.PlayOrder, &r.Length); err != nil {
 			return nil, err
 		}
 		out = append(out, r)

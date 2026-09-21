@@ -77,6 +77,63 @@ func TestTagHue(t *testing.T) {
 	}
 }
 
+func TestNaturalLess(t *testing.T) {
+	cases := []struct {
+		a, b string
+		want bool
+	}{
+		// The user's example: numeric runs compare numerically.
+		{"9aaa", "92test", true},
+		{"92test", "9aaa", false},
+		{"9", "10", true},
+		{"10", "9", false},
+		{"2", "10", true},
+		{"a2", "a10", true},
+		{"a1b", "a1c", true},
+		// leading zeros: equal numeric value, no strict order either way
+		{"a02", "a2", false},
+		{"a2", "a02", false},
+		{"a02", "a3", true},
+		{"pop", "rock", true},
+		{"Rock", "apple", false}, // case-insensitive: apple < rock
+		{"prefix", "prefixx", true},
+	}
+	for _, tc := range cases {
+		if got := naturalLess(tc.a, tc.b); got != tc.want {
+			t.Errorf("naturalLess(%q, %q) = %v, want %v", tc.a, tc.b, got, tc.want)
+		}
+	}
+}
+
+func TestSortCommentTags(t *testing.T) {
+	// The user's example: #92test must come after #9aaa.
+	got := sortCommentTags("#92test #9aaa #10final #2start")
+	want := "#2start #9aaa #10final #92test"
+	if got != want {
+		t.Errorf("sortCommentTags = %q, want %q", got, want)
+	}
+
+	// Non-tag words keep their relative order after the sorted tags.
+	got = sortCommentTags("#b #a live edit")
+	if got != "#a #b live edit" {
+		t.Errorf("sortCommentTags with words = %q", got)
+	}
+
+	// Single tag / empty comment: unchanged.
+	if got := sortCommentTags("#only"); got != "#only" {
+		t.Errorf("single tag = %q", got)
+	}
+	if got := sortCommentTags(""); got != "" {
+		t.Errorf("empty comment = %q", got)
+	}
+
+	// Case-insensitive ordering, original casing preserved.
+	got = sortCommentTags("#Pop #apple")
+	if got != "#apple #Pop" {
+		t.Errorf("case-insensitive sort = %q, want %q", got, "#apple #Pop")
+	}
+}
+
 // TestDriveSplitterDrag drags the splitter between the track list and the
 // detail panel and verifies the browser width follows the mouse (with
 // clamping).

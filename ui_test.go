@@ -27,7 +27,8 @@ func buildTestLibrary(t *testing.T) string {
 	schema := `
 	CREATE TABLE Track (
 		id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, artist TEXT, album TEXT,
-		filename TEXT, path TEXT, fileType TEXT, bpmAnalyzed REAL, length INTEGER
+		filename TEXT, path TEXT, fileType TEXT, bpmAnalyzed REAL, length INTEGER,
+		bpm INTEGER, year INTEGER, playOrder INTEGER, genre TEXT, comment TEXT, composer TEXT
 	);
 	CREATE TABLE PerformanceData (
 		trackId INTEGER PRIMARY KEY, trackData BLOB, quickCues BLOB, loops BLOB, activeOnLoadLoops INTEGER
@@ -44,8 +45,8 @@ func buildTestLibrary(t *testing.T) string {
 		{7, "Galaxy", "Alex Metric"},
 	}
 	for _, tr := range tracks {
-		if _, err := db.Exec(`INSERT INTO Track (id, title, artist, filename, path, fileType, bpmAnalyzed, length)
-			VALUES (?, ?, ?, ?, ?, 'mp3', 124.0, 200)`, tr.id, tr.title, tr.art, tr.title+".mp3", tr.title+".mp3"); err != nil {
+		if _, err := db.Exec(`INSERT INTO Track (id, title, artist, filename, path, fileType, bpmAnalyzed, length, bpm, year, playOrder)
+			VALUES (?, ?, ?, ?, ?, 'mp3', 124.0, 200, 124, 2024, 3)`, tr.id, tr.title, tr.art, tr.title+".mp3", tr.title+".mp3"); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := db.Exec(`INSERT INTO PerformanceData (trackId, trackData, quickCues, loops, activeOnLoadLoops)
