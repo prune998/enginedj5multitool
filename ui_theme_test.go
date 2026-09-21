@@ -134,6 +134,45 @@ func TestSortCommentTags(t *testing.T) {
 	}
 }
 
+func TestKeyInfoFor(t *testing.T) {
+	// Engine DJ key table (Mixxx wiki): 0=8B/C maj, 1=8A/A min, 10=1B/B maj,
+	// 23=7A/D min. Hours wrap 8..12 then 1..7.
+	cases := []struct {
+		v    int64
+		code string
+		root string
+		minr bool
+	}{
+		{0, "8B", "C", false},
+		{1, "8A", "A", true},
+		{2, "9B", "G", false},
+		{3, "9A", "E", true},
+		{8, "12B", "E", false},
+		{10, "1B", "B", false},
+		{11, "1A", "Ab", true},
+		{17, "4A", "F", true},
+		{22, "7B", "F", false},
+		{23, "7A", "D", true},
+	}
+	for _, tc := range cases {
+		ki := keyInfoFor(tc.v)
+		if !ki.Live || ki.Code != tc.code || ki.Root != tc.root || ki.Minor != tc.minr {
+			t.Errorf("keyInfoFor(%d) = %+v, want %s/%s minor=%v", tc.v, ki, tc.code, tc.root, tc.minr)
+		}
+	}
+	// Unset key.
+	if ki := keyInfoFor(-1); ki.Live {
+		t.Errorf("keyInfoFor(-1) should not be live: %+v", ki)
+	}
+	// Relative major/minor share the wheel hue; adjacent hours differ.
+	if keyInfoFor(0).Hue != keyInfoFor(1).Hue {
+		t.Error("8B and 8A must share the same wheel hue")
+	}
+	if keyInfoFor(0).Hue == keyInfoFor(2).Hue {
+		t.Error("8B and 9B must have different hues")
+	}
+}
+
 // TestDriveSplitterDrag drags the splitter between the track list and the
 // detail panel and verifies the browser width follows the mouse (with
 // clamping).

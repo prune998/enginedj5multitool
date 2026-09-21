@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
 	"os"
 	"path/filepath"
 	"strings"
@@ -172,25 +173,71 @@ func ReadEmbeddedArt(path string) (*MediaArt, error) {
 }
 
 const frPicture = "APIC"
+const frPOPM = "POPM"
+
+// popmEmail identifies our popularimeter frame so updates never touch frames
+// written by other tools (iTunes, Mixed In Key, ...).
+const popmEmail = "enginedj5multitool@localhost"
+
+// applyPOPM stores a 0-100 rating in the file's POPM (popularimeter) frame.
+// The 0-100 scale maps linearly onto the 0-255 POPM range, which puts the
+// 5-star steps exactly on the usual 51/102/153/204/255 star thresholds.
+// Frames from other tools (different email) are preserved.
+func applyPOPM(tag *id3v2.Tag, rating int64) {
+	if rating < 0 {
+		rating = 0
+	}
+	if rating > 100 {
+		rating = 100
+	}
+	tag.AddFrame(frPOPM, id3v2.PopularimeterFrame{
+		Email:   popmEmail,
+		Rating:  uint8(rating * 255 / 100),
+		Counter: new(big.Int),
+	})
+}
+
+// WriteRatingPOPM updates the POPM frame of a file with a 0-100 rating.
+func WriteRatingPOPM(path string, rating int64) error {
+	tag, err := id3v2.Open(path, id3v2.Options{Parse: true})
+	if err != nil {
+		return err
+	}
+	applyPOPM(tag, rating)
+	if cerr := tag.Close(); cerr != nil {
+		return cerr
+	}
+	return writeTagToFile(path, tag)
+}
 
 // SaveMediaTags writes the editable tags to an MP3 file, preserving the
 // existing ID3v2 version and all untouched frames (album art, TBPM from
 // analysis, custom frames...). Files without an existing ID3v2 tag get one.
 func SaveMediaTags(path string, t MediaTags) error {
-	return saveMediaTags(path, t, nil)
+	return saveMediaTags(path, t, nil, nil)
 }
 
 // SaveMediaTagsWithArt behaves like SaveMediaTags and additionally replaces
 // the embedded artwork with art (when art is non-nil).
 func SaveMediaTagsWithArt(path string, t MediaTags, art *MediaArt) error {
-	return saveMediaTags(path, t, art)
+	return saveMediaTags(path, t, art, nil)
 }
 
-func saveMediaTags(path string, t MediaTags, art *MediaArt) error {
+// SaveMediaTagsFull writes the editable tags and optionally replaces the
+// embedded artwork (art) and/or stores the 0-100 rating in the POPM frame
+// (rating).
+func SaveMediaTagsFull(path string, t MediaTags, art *MediaArt, rating *int64) error {
+	return saveMediaTags(path, t, art, rating)
+}
+
+func saveMediaTags(path string, t MediaTags, art *MediaArt, rating *int64) error {
 	tag, err := id3v2.Open(path, id3v2.Options{Parse: true})
 	if err == nil {
 		applyMediaTags(tag, t)
 		applyArt(tag, art)
+		if rating != nil {
+			applyPOPM(tag, *rating)
+		}
 		// Close before rewriting: on Windows the file must not be open for
 		// the rename below to succeed.
 		if cerr := tag.Close(); cerr != nil {
@@ -202,7 +249,7 @@ func saveMediaTags(path string, t MediaTags, art *MediaArt) error {
 		return err
 	}
 	// No readable ID3v2 tag: create a fresh one and prepend it to the audio.
-	return writeFreshTag(path, t, art)
+	return writeFreshTag(path, t, art, rating)
 }
 
 // applyArt replaces the embedded picture when art is non-nil; otherwise the
@@ -246,7 +293,7 @@ func applyMediaTags(tag *id3v2.Tag, t MediaTags) {
 
 // writeFreshTag builds a new ID3v2 tag from scratch and prepends it to the
 // raw audio data of a file that has no tag yet.
-func writeFreshTag(path string, t MediaTags, art *MediaArt) error {
+func writeFreshTag(path string, t MediaTags, art *MediaArt, rating *int64) error {
 	header := make([]byte, 10)
 	if f, err := os.Open(path); err == nil {
 		_, rerr := io.ReadFull(f, header)
@@ -258,6 +305,9 @@ func writeFreshTag(path string, t MediaTags, art *MediaArt) error {
 	tag := id3v2.NewEmptyTag()
 	applyMediaTags(tag, t)
 	applyArt(tag, art)
+	if rating != nil {
+		applyPOPM(tag, *rating)
+	}
 	return writeTagToFile(path, tag)
 }
 

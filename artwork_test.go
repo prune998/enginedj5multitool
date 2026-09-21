@@ -7,6 +7,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -194,6 +195,85 @@ func TestFetchArtDiscogs(t *testing.T) {
 	}
 	if gotAuth != "Discogs token=my-token" {
 		t.Errorf("Authorization = %q", gotAuth)
+	}
+}
+
+func ratingPtr(v int64) *int64 { return &v }
+
+// popmFor returns the POPM frame with the given email ("" = any).
+func popmFor(t *testing.T, path, email string) []id3v2.PopularimeterFrame {
+	tag, err := id3v2.Open(path, id3v2.Options{Parse: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tag.Close()
+	var out []id3v2.PopularimeterFrame
+	for _, f := range tag.GetFrames(frPOPM) {
+		if pf, ok := f.(id3v2.PopularimeterFrame); ok {
+			if email == "" || pf.Email == email {
+				out = append(out, pf)
+			}
+		}
+	}
+	return out
+}
+
+func TestPOPMRatingWritten(t *testing.T) {
+	p := mp3Fixture(t)
+
+	// Save with a rating: POPM must carry 80/100 → 204 (linear 0-255 scale).
+	if err := SaveMediaTagsFull(p, MediaTags{Title: "T"}, nil, ratingPtr(80)); err != nil {
+		t.Fatal(err)
+	}
+	frames := popmFor(t, p, popmEmail)
+	if len(frames) != 1 {
+		t.Fatalf("got %d POPM frames for %q, want 1", len(frames), popmEmail)
+	}
+	if frames[0].Rating != 204 {
+		t.Errorf("POPM rating = %d, want 204", frames[0].Rating)
+	}
+
+	// Updating the rating replaces our frame (no duplicates).
+	if err := WriteRatingPOPM(p, 20); err != nil {
+		t.Fatal(err)
+	}
+	frames = popmFor(t, p, popmEmail)
+	if len(frames) != 1 || frames[0].Rating != 51 {
+		t.Fatalf("after update: %d frames, rating %d; want 1 frame @ 51", len(frames), frames[0].Rating)
+	}
+}
+
+func TestPOPMReplacesOnlyOurFrame(t *testing.T) {
+	p := mp3Fixture(t)
+	if err := SaveMediaTags(p, MediaTags{Title: "T"}); err != nil {
+		t.Fatal(err)
+	}
+	// Another tool's popularimeter frame.
+	tag, err := id3v2.Open(p, id3v2.Options{Parse: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tag.AddFrame(frPOPM, id3v2.PopularimeterFrame{
+		Email: "itunes@localhost", Rating: 10, Counter: new(big.Int),
+	})
+	if err := tag.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeTagToFile(p, tag); err != nil {
+		t.Fatal(err)
+	}
+
+	// Our rating update must not touch the other tool's frame.
+	if err := WriteRatingPOPM(p, 60); err != nil {
+		t.Fatal(err)
+	}
+	ours := popmFor(t, p, popmEmail)
+	if len(ours) != 1 || ours[0].Rating != 153 {
+		t.Fatalf("our POPM = %+v, want 1 frame @ 153", ours)
+	}
+	theirs := popmFor(t, p, "itunes@localhost")
+	if len(theirs) != 1 || theirs[0].Rating != 10 {
+		t.Fatalf("other tool's POPM = %+v, want preserved @ 10", theirs)
 	}
 }
 

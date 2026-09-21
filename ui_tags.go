@@ -128,6 +128,12 @@ func (t *TagsTool) RatingRow(a *App, rec TrackRecord) {
 				Toast(SymFail, "Rating write failed", err.Error())
 				return
 			}
+			// Mirror the rating into the file's POPM frame.
+			if t.pathErr == "" {
+				if err := WriteRatingPOPM(t.path, rating); err != nil {
+					Toast(SymFail, "POPM write failed", err.Error())
+				}
+			}
 			rec.Rating = rating
 			for i := range a.Tracks {
 				if a.Tracks[i].ID == rec.ID {
@@ -568,10 +574,11 @@ func (t *TagsTool) SaveRow(a *App, rec TrackRecord) {
 
 func (t *TagsTool) Save(a *App, rec TrackRecord) {
 	var err error
+	rating := rec.Rating
 	if t.pending != nil {
-		err = SaveMediaTagsWithArt(t.path, t.tags, t.pending)
+		err = SaveMediaTagsFull(t.path, t.tags, t.pending, &rating)
 	} else {
-		err = SaveMediaTags(t.path, t.tags)
+		err = SaveMediaTagsFull(t.path, t.tags, nil, &rating)
 	}
 	if err != nil {
 		Toast(SymFail, "Tag write failed", err.Error())

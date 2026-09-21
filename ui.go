@@ -403,6 +403,11 @@ func (a *App) trackColumns(extra *TableColumn[TrackRecord]) []TableColumn[TrackR
 			Less:  func(a, b TrackRecord) bool { return a.Title < b.Title },
 		},
 		{
+			Label: "Key", Width: 64,
+			Cell: func(r TrackRecord) { keyBadge(a, r.Key) },
+			Less: func(a, b TrackRecord) bool { return a.Key < b.Key },
+		},
+		{
 			Label: "Rating", Width: 92,
 			Cell: func(r TrackRecord) { a.stars(r.Rating, 12, nil) },
 			Less: func(a, b TrackRecord) bool { return a.Rating < b.Rating },

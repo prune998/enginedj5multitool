@@ -41,7 +41,8 @@ the list scroll follow along):
   artist, album, album artist, genre, year, track #, disc #, composer, BPM,
   comment). The **5-star rating** above the form is stored in the Engine DJ
   database (click a star to set it, click the single filled star again to
-  clear) and shown as a column in the track list. `Save changes` rewrites the
+  clear) **and mirrored into the file's POPM (popularimeter) ID3 frame** —
+  shown as a column in the track list. `Save changes` rewrites the
   ID3v2 tag in place (preserving the tag version, album art and all untouched
   frames; tagless files get a new tag). With *Also update Engine DJ database*
   checked, the matching `Track` row is updated so the library metadata stays
