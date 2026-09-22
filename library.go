@@ -204,8 +204,66 @@ func ResolveMediaPath(dbDir, musicRoot, engineLib, relPath string) string {
 			return c
 		}
 	}
+
+	// Deep search: different DB versions anchor the stored path at different
+	// levels of the Music.app media tree (./Music/…, ../Music/…,
+	// ../<artist>/…, …), so try every tail of the stored path against every
+	// known music root. Only reached when the fast candidates all missed.
+	for _, base := range mediaRoots(dbDir, musicRoot, engineLib) {
+		for _, suffix := range relativeVariants(norm) {
+			c := canonicalPath(filepath.Join(base, suffix))
+			if st, err := os.Stat(c); err == nil && !st.IsDir() {
+				return c
+			}
+		}
+	}
 	// Nothing found: return the most plausible candidate for error reporting.
 	return canonicalPath(filepath.Join(libRoot, norm))
+}
+
+// mediaRoots returns the known base folders for stored track paths (ordered,
+// deduplicated): user-configured roots first, then the Music.app media tree.
+func mediaRoots(dbDir, musicRoot, engineLib string) []string {
+	var roots []string
+	add := func(p string) {
+		if p == "" {
+			return
+		}
+		for _, r := range roots {
+			if r == p {
+				return
+			}
+		}
+		roots = append(roots, p)
+	}
+	add(musicRoot)
+	add(engineLib)
+	if engineLib != "" {
+		add(filepath.Join(engineLib, "Engine Library")) // nested m.db layout
+	}
+	add(dbDir)
+	if home, err := os.UserHomeDir(); err == nil {
+		music := filepath.Join(home, "Music")
+		add(filepath.Join(music, "Music", "Media", "Music")) // Music.app media
+		add(filepath.Join(music, "Music", "Media"))
+		add(filepath.Join(music, "Music"))
+		add(music)
+	}
+	return roots
+}
+
+// relativeVariants returns every tail of a slash-separated stored path:
+// "../Music/Media/Music/Aerosmith/x.mp3" yields "Music/Media/Music/Aerosmith/
+// x.mp3", "Media/Music/Aerosmith/x.mp3", "Music/Aerosmith/x.mp3",
+// "Aerosmith/x.mp3" and "x.mp3" — combined with the known roots this finds
+// files regardless of which level the stored path was anchored at.
+func relativeVariants(norm string) []string {
+	segs := strings.Split(norm, "/")
+	out := make([]string, 0, len(segs))
+	for i := range segs {
+		out = append(out, strings.Join(segs[i:], "/"))
+	}
+	return out
 }
 
 // UpdateTrackMetadata syncs edited media tags back into the Track table so the

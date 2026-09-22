@@ -106,6 +106,33 @@ func TestResolveMediaPath(t *testing.T) {
 		t.Errorf("engine-relative climb: got %q, want %q", got, song)
 	}
 
+	// Music.app media-tree flavors: the stored path is anchored at an artist
+	// folder inside ~/Music/Music/Media/Music, but the DB lives elsewhere.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	mediaMusic := filepath.Join(home, "Music", "Music", "Media", "Music")
+	artistDir := filepath.Join(mediaMusic, "Aerosmith")
+	if err := os.MkdirAll(artistDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mediaSong := filepath.Join(artistDir, "Sweet Emotion.mp3")
+	if err := os.WriteFile(mediaSong, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// ../Music/Media/Music/<artist>/<file> → resolved via the home Music root.
+	if got := ResolveMediaPath(dbDir, "", "", "../Music/Media/Music/Aerosmith/Sweet Emotion.mp3"); got != mediaSong {
+		t.Errorf("../Music flavor: got %q, want %q", got, mediaSong)
+	}
+	// ./Music/Media/Music/<artist>/<file> → same target.
+	if got := ResolveMediaPath(dbDir, "", "", "./Music/Media/Music/Aerosmith/Sweet Emotion.mp3"); got != mediaSong {
+		t.Errorf("./Music flavor: got %q, want %q", got, mediaSong)
+	}
+	// Artist-anchored flavor ../<artist>/<file> → resolved via the media
+	// Music root with the dots stripped.
+	if got := ResolveMediaPath(dbDir, "", "", "../Aerosmith/Sweet Emotion.mp3"); got != mediaSong {
+		t.Errorf("artist-anchored flavor: got %q, want %q", got, mediaSong)
+	}
+
 	// musicRoot override wins when the file exists there.
 	musicRoot := filepath.Join(root, "music")
 	artist := filepath.Join(musicRoot, "artist")
