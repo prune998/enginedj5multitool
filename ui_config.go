@@ -40,8 +40,10 @@ func (t *ConfigTool) View(a *App) {
 		})
 		// Music root
 		Container(Attrs(Gap(2)), func() {
-			a.L("Music root (used to resolve relative track paths)", FontSize(a.fs(11)), TextColorVec(a.pal().textDim))
+			a.L("Music root (optional)", FontSize(a.fs(11)), TextColorVec(a.pal().textDim))
 			a.input(&t.draft.MusicRoot, DefaultTextInputAttrs())
+			a.wrappedText("Extra folder to search when a track's audio file cannot be found. Track paths in the Engine DJ database are relative to the Engine Library folder; leave this empty for the standard layouts (audio next to the library or in the Music.app media tree). Set it only when your audio lives somewhere else entirely — for example an external drive like /Volumes/DJ Music — and every tool (Cues & Loops, MP3 Tags, Dedup) will look there too. Changes apply after pressing Load.",
+				640, FontSize(a.fs(11)), TextColorVec(a.pal().textDim))
 		})
 		// Engine Library folder
 		Container(Attrs(Gap(2)), func() {

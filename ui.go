@@ -309,7 +309,8 @@ func (a *App) FullDiskAccessBanner() {
 	})
 }
 
-// TopBar shows the library path, music root, theme selector and load status.
+// TopBar shows the library path, theme selector and load status. The music
+// root override lives in the Settings tool (see its help text there).
 func (a *App) TopBar() {
 	p := a.pal()
 	Container(Attrs(Row, CrossMid, Pad2(8, 10), Gap(10), BackgroundVec(p.bgTop)), func() {
@@ -324,11 +325,6 @@ func (a *App) TopBar() {
 			a.Filter = a.FilterDraft
 			a.Refresh()
 		}
-
-		Label("Music root", TextColorVec(p.textDim))
-		Container(Attrs(Grow(1), MinWidth(120), MaxWidth(260)), func() {
-			a.input(&a.MusicRoot, smallInput(120))
-		})
 
 		Container(Attrs(Row, CrossMid), func() {
 			theme := &a.Theme
