@@ -347,6 +347,16 @@ complain on first launch after a download:
 
 Both are one-time steps; the app then launches normally.
 
+#### Full Disk Access
+
+macOS privacy (TCC) silently blocks apps launched from Finder from reading
+the Music folder — the Engine DJ library and the Music.app media tree live
+there. At startup the app detects this and automatically opens
+**System Settings → Privacy & Security → Full Disk Access**; add
+"Engine DJ Multi Tool" to the list and restart it. A banner under the top
+bar (with a shortcut button to the settings pane) stays visible while the
+restriction is detected.
+
 ## Configuration
 
 On first run the app creates `config.yaml` in the per-OS user config

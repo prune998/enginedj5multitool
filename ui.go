@@ -84,6 +84,10 @@ type App struct {
 	onQuit func() // test hook; defaults to app.Quit
 
 	cfgPath string // config.yaml path (shown/edited by the Settings tool)
+
+	// macOS Full Disk Access: set at startup when TCC blocks the Music
+	// folder; the banner offers a shortcut to the settings pane.
+	fdaNotice bool
 }
 
 const (
@@ -171,6 +175,9 @@ func (a *App) RootView() {
 	}
 	Container(Attrs(Viewport, BackgroundVec(p.bgRoot), AmendTextStyle(rootMods...)), func() {
 		a.TopBar()
+		if a.fdaNotice {
+			a.FullDiskAccessBanner()
+		}
 		Container(Attrs(Row, Grow(1), Expand), func() {
 			a.Sidebar()
 			Container(Attrs(Grow(1), Expand, Viewport, Pad(10)), func() {
@@ -281,6 +288,25 @@ func (a *App) quit() {
 		return
 	}
 	app.Quit()
+}
+
+// FullDiskAccessBanner tells the user macOS is blocking the Music folder
+// and offers a shortcut to the Full Disk Access settings pane. Shown under
+// the top bar while the restriction is detected; it can be dismissed (the
+// app may still work when the library lives outside the protected folder).
+func (a *App) FullDiskAccessBanner() {
+	p := a.pal()
+	Container(Attrs(Row, CrossMid, Pad2(8, 6), Gap(10), BackgroundVec(p.bgPanel)), func() {
+		Icon(SymWarn, TextColorVec(p.textError), FontSize(a.fs(14)))
+		a.wrappedText("macOS is blocking access to the Music folder: grant this app Full Disk Access (System Settings → Privacy & Security → Full Disk Access), then press Load.",
+			900, FontSize(a.fs(12)), TextColorVec(p.text))
+		if CtrlButton(SymCog, "Open Full Disk Access settings", true) {
+			_ = openFullDiskAccessPane()
+		}
+		if CtrlButton(SymICross, "Dismiss", true) {
+			WithFrameLock(func() { a.fdaNotice = false })
+		}
+	})
 }
 
 // TopBar shows the library path, music root, theme selector and load status.
@@ -605,6 +631,13 @@ func runUI(lc LoadedConfig, snapshotPath string, filter string) {
 	}
 	if snapshotPath == "" {
 		a.cfgPath = lc.Path
+		// macOS privacy (TCC) silently blocks Finder-launched apps from
+		// reading the Music folder; detect it once and open the Full Disk
+		// Access pane so the user can grant access (a system prompt cannot
+		// be shown programmatically for this permission).
+		if a.fdaNotice = fullDiskAccessRestricted(); a.fdaNotice {
+			_ = openFullDiskAccessPane()
+		}
 		// Save the window size and the splitter position on exit — the only
 		// main-UI values written back to the config file (and never when the
 		// file was malformed).
