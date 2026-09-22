@@ -233,6 +233,15 @@ func (t *DedupTool) ReportPanel(a *App) {
 		a.L(fmt.Sprintf("%d entr%s checked for deletion.", sel, plural(sel)),
 			FontSize(12), TextColorVec(a.pal().textError))
 	}
+	Container(Attrs(Row, CrossMid, Gap(10), Pad2(4, 0)), func() {
+		if CtrlButton(SymBan, fmt.Sprintf("Delete selected (%d)", t.selectedCount()),
+			!t.running && t.selectedCount() > 0) {
+			t.deleteSelected(a)
+		}
+		if CtrlButton(SymSearch, "Re-scan", !t.running) {
+			t.startScan(a)
+		}
+	})
 
 	shown := 0
 	for gi := range t.groups {
