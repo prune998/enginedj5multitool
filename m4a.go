@@ -79,12 +79,26 @@ func m4aTopBoxes(f *os.File) ([]*m4aBox, error) {
 	fileSize := st.Size()
 	var boxes []*m4aBox
 	off := int64(0)
+	// Some tools prepend an ID3v2 tag to MP4 files; expose it as a verbatim
+	// pseudo-box so the walk — and any file rewrite — keeps it intact.
+	if fileSize >= 10 {
+		var h [10]byte
+		if _, rerr := f.ReadAt(h[:], 0); rerr == nil && h[0] == 'I' && h[1] == 'D' && h[2] == '3' {
+			sz := int64(h[6]&0x7f)<<21 | int64(h[7]&0x7f)<<14 | int64(h[8]&0x7f)<<7 | int64(h[9]&0x7f)
+			if 10+sz <= fileSize {
+				boxes = append(boxes, &m4aBox{
+					typ: [4]byte{'I', 'D', '3', ' '}, offset: 0, header: 10, size: 10 + sz,
+				})
+				off = 10 + sz
+			}
+		}
+	}
 	for off+m4aHeaderSize <= fileSize {
 		typ, header, size, err := m4aReadHeader(f, off, fileSize)
 		if err != nil {
 			break // trailing garbage / EOF
 		}
-		if size < header {
+		if size < header || off+size > fileSize {
 			return nil, fmt.Errorf("invalid top-level box size %d at offset %d", size, off)
 		}
 		boxes = append(boxes, &m4aBox{typ: typ, offset: off, header: header, size: size})

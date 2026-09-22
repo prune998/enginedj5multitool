@@ -112,6 +112,16 @@ func (a *App) SelectedTrack() (TrackRecord, bool) {
 	return TrackRecord{}, false
 }
 
+// Close releases the database handle (no-op when the library never opened).
+// Tests must call it so temp directories can be cleaned up on Windows,
+// which refuses to delete files that are still open.
+func (a *App) Close() {
+	if a.lib != nil {
+		a.lib.Close()
+		a.lib = nil
+	}
+}
+
 // Refresh (re)opens the library and reloads the track list with the applied
 // filter.
 func (a *App) Refresh() {
@@ -180,7 +190,9 @@ func (a *App) RootView() {
 // it).
 func (a *App) handleGlobalKeys() {
 	fi := GetFrameInput()
-	if fi.Key == KeyQ && GetInputState().Modifiers == PrimaryMod() {
+	// Accept Cmd-Q and Ctrl-Q on every platform (Linux window managers and
+	// the drive test harness report either modifier).
+	if fi.Key == KeyQ && GetInputState().Modifiers&(ModCmd|ModCtrl) != 0 {
 		fi.Key = 0   // consume: no widget may react to the key...
 		fi.Text = "" // ...and no text input may insert a stray "q"
 		a.quit()

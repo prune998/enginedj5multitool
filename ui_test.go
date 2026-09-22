@@ -74,6 +74,7 @@ func TestDriveFilterReturnKey(t *testing.T) {
 	GetHost().WindowSize = Vec2{1180, 740}
 
 	a := NewApp(buildTestLibrary(t))
+	defer a.Close() // release the DB handle (Windows file locks)
 	if a.TrackCount != 2 {
 		t.Fatalf("expected 2 unfiltered tracks, got %d", a.TrackCount)
 	}
@@ -145,6 +146,7 @@ func TestDriveTrackSelection(t *testing.T) {
 
 	dbPath := buildTestLibrary(t)
 	a := NewApp(dbPath)
+	defer a.Close() // release the DB handle (Windows file locks)
 	if len(a.Tracks) != 2 {
 		t.Fatalf("expected 2 tracks, got %d", len(a.Tracks))
 	}
@@ -252,6 +254,7 @@ func TestDriveQuitShortcut(t *testing.T) {
 
 	dbPath := buildTestLibrary(t)
 	a := NewApp(dbPath)
+	defer a.Close() // release the DB handle (Windows file locks)
 
 	var quitCalled atomic.Bool
 	a.onQuit = func() { quitCalled.Store(true) }
@@ -339,6 +342,7 @@ func TestGlobalEditCommentTags(t *testing.T) {
 	}
 
 	a := NewApp(dbPath)
+	defer a.Close() // release the DB handle (Windows file locks)
 	// Seed the file comment (unsorted, with a non-tag word).
 	if err := SaveMediaTags(mp3, MediaTags{Title: "Emotion", Comment: "#ztag some note #atag"}); err != nil {
 		t.Fatal(err)
@@ -450,6 +454,7 @@ func TestDriveTagsToolLoad(t *testing.T) {
 	}
 
 	a := NewApp(dbPath)
+	defer a.Close() // release the DB handle (Windows file locks)
 	tags := a.Tools[1].(*TagsTool)
 
 	port, err := drive.FreePort()

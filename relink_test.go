@@ -39,6 +39,7 @@ func TestRelinkAsyncFlow(t *testing.T) {
 	}
 
 	a := NewApp(dbPath)
+	defer a.Close() // release the DB handle (Windows file locks)
 	tool := a.Tools[3].(*RelinkTool)
 	tool.root = newDir // root containing the moved file
 
@@ -120,6 +121,7 @@ func TestRelinkFindsMovedFile(t *testing.T) {
 	}
 
 	a := NewApp(dbPath)
+	defer a.Close()                  // release the DB handle (Windows file locks)
 	tool := a.Tools[3].(*RelinkTool) // Stage 1: the scan proposes a new path for track 5 and marks track 7 as
 	// no-match.
 	rep, missing := tool.scanSync(a)

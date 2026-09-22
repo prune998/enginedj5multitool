@@ -185,6 +185,7 @@ func TestDriveSplitterDrag(t *testing.T) {
 	GetHost().WindowSize = Vec2{1600, 740}
 
 	a := NewApp(buildTestLibrary(t))
+	defer a.Close() // release the DB handle (Windows file locks)
 	if a.splitW != 560 {
 		t.Fatalf("initial splitW = %v, want 560", a.splitW)
 	}

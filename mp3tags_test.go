@@ -100,8 +100,8 @@ func TestResolveMediaPath(t *testing.T) {
 	if err := os.MkdirAll(eng, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	depth := len(strings.Split(filepath.Clean(eng), "/")) - 1
-	engRel := strings.Repeat("../", depth) + strings.TrimPrefix(song, "/")
+	depth := len(strings.Split(filepath.ToSlash(filepath.Clean(eng)), "/")) - 1
+	engRel := strings.Repeat("../", depth) + strings.TrimPrefix(filepath.ToSlash(song), "/")
 	if got := ResolveMediaPath(dbDir, "", eng, engRel); got != song {
 		t.Errorf("engine-relative climb: got %q, want %q", got, song)
 	}
@@ -110,6 +110,7 @@ func TestResolveMediaPath(t *testing.T) {
 	// folder inside ~/Music/Music/Media/Music, but the DB lives elsewhere.
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // os.UserHomeDir on Windows reads this
 	mediaMusic := filepath.Join(home, "Music", "Music", "Media", "Music")
 	artistDir := filepath.Join(mediaMusic, "Aerosmith")
 	if err := os.MkdirAll(artistDir, 0o755); err != nil {

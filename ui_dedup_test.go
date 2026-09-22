@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -25,6 +26,9 @@ func TestCanonicalPath(t *testing.T) {
 // /Volumes/Macintosh HD alias, the other under the real /Users/... path —
 // both must group as the same file.
 func TestDedupGroupsVolumeAliasPath(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("the /Volumes/Macintosh HD mountpoint alias is macOS-specific")
+	}
 	dbPath := buildTestLibrary(t)
 	real := filepath.Join(t.TempDir(), "Song.mp3")
 	if err := os.WriteFile(real, bytes.Repeat([]byte{0xFF, 0xFB, 0x90, 0x00}, 256), 0o644); err != nil {
@@ -46,6 +50,7 @@ func TestDedupGroupsVolumeAliasPath(t *testing.T) {
 	}
 
 	a := NewApp(dbPath)
+	defer a.Close() // release the DB handle (Windows file locks)
 	tool := a.Tools[4].(*DedupTool)
 	groups, _ := tool.scanSync(a)
 	if len(groups) != 1 {
@@ -83,6 +88,7 @@ func TestDedupFindsSameFile(t *testing.T) {
 	}
 
 	a := NewApp(dbPath)
+	defer a.Close() // release the DB handle (Windows file locks)
 	tool := a.Tools[4].(*DedupTool)
 
 	groups, total := tool.scanSync(a)
@@ -157,6 +163,7 @@ func TestDedupMissingSharedFile(t *testing.T) {
 	}
 
 	a := NewApp(dbPath)
+	defer a.Close() // release the DB handle (Windows file locks)
 	tool := a.Tools[4].(*DedupTool)
 	groups, _ := tool.scanSync(a)
 	if len(groups) != 1 {
