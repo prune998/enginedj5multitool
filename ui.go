@@ -37,6 +37,7 @@ func init() {
 	RegisterTool(func() AppTool { return &TagsTool{} })
 	RegisterTool(func() AppTool { return &GlobalTool{} })
 	RegisterTool(func() AppTool { return &RelinkTool{} })
+	RegisterTool(func() AppTool { return &DedupTool{} })
 	RegisterTool(func() AppTool { return &ConfigTool{} })
 }
 

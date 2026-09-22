@@ -155,6 +155,15 @@ func (t *RelinkTool) proposalCount() int {
 	return n
 }
 
+// relinkedCount returns how many proposals the last relink run applied
+// (0 while a run is in progress or after a scan).
+func (t *RelinkTool) relinkedCount() int {
+	if t.report == nil || t.report.scan {
+		return 0
+	}
+	return t.report.relinked
+}
+
 // deleteCount returns the number of no-match tracks checked for deletion.
 func (t *RelinkTool) deleteCount() int {
 	n := 0
@@ -476,10 +485,15 @@ func (t *RelinkTool) relinkSync(a *App, missing []missingTrack) *relinkReport {
 // ReportPanel shows the scan proposals (interactive) or the last run's
 // results.
 func (t *RelinkTool) ReportPanel(a *App) {
+	// While a scan or relink is running the report is nil (the buttons row
+	// shows the progress) — nothing to render here yet.
+	if t.report == nil {
+		return
+	}
 	p := a.pal()
 	w := a.paneTextWidth()
 
-	if t.report != nil && !t.report.scan {
+	if !t.report.scan {
 		rep := t.report
 		a.L("Last run", FontWeight(WeightBold), FontSize(14))
 		a.L(fmt.Sprintf("%d track(s) checked: %d missing, %d relinked, %d skipped (not selected), %d failed.",

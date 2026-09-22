@@ -17,6 +17,9 @@ import (
 // (Year / Track / Disc / BPM) are laid out left-to-right inside the panel
 // without overflowing past its right edge.
 func TestTagsFormFieldsFit(t *testing.T) {
+	if raceEnabled {
+		t.Skip("drive harness races under -race (global shirei state)")
+	}
 	InitFontSubsystem()
 	ResetInputSession()
 	GetHost().WindowSize = Vec2{1180, 740}

@@ -177,6 +177,9 @@ func TestKeyInfoFor(t *testing.T) {
 // detail panel and verifies the browser width follows the mouse (with
 // clamping).
 func TestDriveSplitterDrag(t *testing.T) {
+	if raceEnabled {
+		t.Skip("drive harness races under -race (global shirei state)")
+	}
 	InitFontSubsystem()
 	ResetInputSession()
 	GetHost().WindowSize = Vec2{1600, 740}

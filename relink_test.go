@@ -5,12 +5,105 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
+	"time"
+
+	. "go.hasen.dev/shirei"
+	"go.hasen.dev/shirei/drive"
 )
 
 // TestRelinkFindsMovedFile moves a track's audio file into a folder tree and
 // verifies the Relink tool finds it (by name + artist folder + file size) and
 // updates Track.path in the database.
+// TestRelinkAsyncFlow runs the full two-stage relink through the async
+// goroutine path (startScan / relinkAll) while frames render — this is the
+// flow that used to panic in ReportPanel (nil report dereference).
+func TestRelinkAsyncFlow(t *testing.T) {
+	if raceEnabled {
+		t.Skip("drive harness races under -race (global shirei state)")
+	}
+	InitFontSubsystem()
+	ResetInputSession()
+	GetHost().WindowSize = Vec2{1180, 740}
+
+	dbPath := buildTestLibrary(t)
+	content := bytes.Repeat([]byte{0xFF, 0xFB, 0x90, 0x00}, 256)
+	newDir := filepath.Join(t.TempDir(), "moved", "Purple Disco Machine")
+	if err := os.MkdirAll(newDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	newPath := filepath.Join(newDir, "Emotion.mp3")
+	if err := os.WriteFile(newPath, content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	a := NewApp(dbPath)
+	tool := a.Tools[3].(*RelinkTool)
+	tool.root = newDir // root containing the moved file
+
+	port, err := drive.FreePort()
+	if err != nil {
+		t.Fatal(err)
+	}
+	AcceptInputCommands(port)
+
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				RunFrameFn(a.RootView) // frames render during scan AND relink
+				time.Sleep(8 * time.Millisecond)
+			}
+		}
+	}()
+	defer func() {
+		close(stop)
+		wg.Wait()
+		a.lib.Close()
+	}()
+
+	time.Sleep(40 * time.Millisecond)
+
+	// Stage 1 (async scan) → stage 2 (async relink of all proposals).
+	tool.startScan(a)
+	time.Sleep(150 * time.Millisecond)
+	if !tool.scanned {
+		t.Fatal("scan did not complete")
+	}
+	if tool.proposalCount() != 1 {
+		t.Fatalf("proposals = %d, want 1", tool.proposalCount())
+	}
+	tool.relinkAll(a)
+	time.Sleep(150 * time.Millisecond)
+	if tool.running || tool.relinkedCount() != 1 {
+		t.Fatalf("relink did not complete: running=%v relinked=%d", tool.running, tool.relinkedCount())
+	}
+
+	// DB points at the new file.
+	lib2, err := OpenLibrary(dbPath, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lib2.Close()
+	tracks, _ := lib2.Tracks("")
+	var dbPath5 string
+	for _, r := range tracks {
+		if r.ID == 5 {
+			dbPath5 = r.Path
+		}
+	}
+	if dbPath5 != newPath {
+		t.Fatalf("Track.path = %q, want %q", dbPath5, newPath)
+	}
+}
+
 func TestRelinkFindsMovedFile(t *testing.T) {
 	dbPath := buildTestLibrary(t)
 
@@ -27,9 +120,7 @@ func TestRelinkFindsMovedFile(t *testing.T) {
 	}
 
 	a := NewApp(dbPath)
-	tool := a.Tools[3].(*RelinkTool)
-
-	// Stage 1: the scan proposes a new path for track 5 and marks track 7 as
+	tool := a.Tools[3].(*RelinkTool) // Stage 1: the scan proposes a new path for track 5 and marks track 7 as
 	// no-match.
 	rep, missing := tool.scanSync(a)
 	// Point the search at the folder containing the moved file and re-scan.

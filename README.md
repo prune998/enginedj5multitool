@@ -59,6 +59,10 @@ the list scroll follow along):
   ID3 comment (preserving artwork/POPM via the padding-aware writer), can
   sync the Engine DJ `Track.comment`, supports a dry run with a per-track
   report, and skips files it doesn't need to touch.
+- **Dedup** — finds groups of library entries that point to the same audio
+  file on disk and shows how their metadata (rating, key, track number)
+  differs. The first entry of each group is the keeper; extra entries can be
+  checked and removed from the database (the audio file is never touched).
 - **Relink** — scans the library for tracks whose audio file is missing and
   searches a root folder (defaulting to the Music app folder) for the moved
   file — matching on file name, artist, album, title and file size — then
