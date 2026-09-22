@@ -103,12 +103,12 @@ Other UI features:
 Files are located via the path stored in the `Track` table: per the Engine DJ
 spec, stored paths are **always relative to the Engine Library folder** — the
 `../` chains climb out of it toward the volume root (e.g.
-`../../../../Volumes/Macintosh HD/Users/prune/Music/…`). Resolution tries: the
+`../../../../Volumes/Macintosh HD/Users/you/Music/…`). Resolution tries: the
 Engine Library folder (config/Settings, auto-detected at
 `~/Music/Engine Library` when it exists; falls back to the database
 directory), the *music root* from the top bar, and the root-anchored trimmed
 path. The macOS default volume alias (`/Volumes/Macintosh HD/…`) is mapped to
-the real path (`/Users/prune/Music/…`) and all tools display canonical paths.
+the real path (`/Users/you/Music/…`) and all tools display canonical paths.
 
 Useful flags:
 
