@@ -19,6 +19,20 @@ import (
 // TestRelinkAsyncFlow runs the full two-stage relink through the async
 // goroutine path (startScan / relinkAll) while frames render — this is the
 // flow that used to panic in ReportPanel (nil report dereference).
+// waitUntil polls cond until it holds or the deadline passes (drive-harness
+// completions are asynchronous; fixed sleeps are flaky on loaded runners).
+func waitUntil(t *testing.T, timeout time.Duration, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("condition not met within deadline")
+}
+
 func TestRelinkAsyncFlow(t *testing.T) {
 	if raceEnabled {
 		t.Skip("drive harness races under -race (global shirei state)")
@@ -74,18 +88,12 @@ func TestRelinkAsyncFlow(t *testing.T) {
 
 	// Stage 1 (async scan) → stage 2 (async relink of all proposals).
 	tool.startScan(a)
-	time.Sleep(150 * time.Millisecond)
-	if !tool.scanned {
-		t.Fatal("scan did not complete")
-	}
+	waitUntil(t, 3*time.Second, func() bool { return tool.scanned })
 	if tool.proposalCount() != 1 {
 		t.Fatalf("proposals = %d, want 1", tool.proposalCount())
 	}
 	tool.relinkAll(a)
-	time.Sleep(150 * time.Millisecond)
-	if tool.running || tool.relinkedCount() != 1 {
-		t.Fatalf("relink did not complete: running=%v relinked=%d", tool.running, tool.relinkedCount())
-	}
+	waitUntil(t, 3*time.Second, func() bool { return !tool.running && tool.relinkedCount() == 1 })
 
 	// DB points at the new file.
 	lib2, err := OpenLibrary(dbPath, true)
