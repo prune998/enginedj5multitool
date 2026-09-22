@@ -657,21 +657,23 @@ func m4aPatchOffsets(payload []byte, delta int64) {
 
 // m4aWriteFile reassembles the file: the new moov in place of the old one,
 // every other top-level box copied verbatim; then atomically replaces the
-// original (temp file + rename, mode preserved).
+// original (temp file + rename, mode preserved). The original handle is
+// closed BEFORE the rename — Windows refuses to replace open files.
 func m4aWriteFile(path string, moov *m4aBox, newMoovPayload []byte) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
 	st, err := f.Stat()
 	if err != nil {
+		f.Close()
 		return err
 	}
 
 	// Chunk offsets shift only when the moov sits before the media data.
 	top, err := m4aTopBoxes(f)
 	if err != nil {
+		f.Close()
 		return err
 	}
 	delta := (int64(8 + len(newMoovPayload))) - moov.size
@@ -695,6 +697,7 @@ func m4aWriteFile(path string, moov *m4aBox, newMoovPayload []byte) error {
 
 	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".m4atmp*")
 	if err != nil {
+		f.Close()
 		return err
 	}
 	tmpName := tmp.Name()
@@ -702,33 +705,33 @@ func m4aWriteFile(path string, moov *m4aBox, newMoovPayload []byte) error {
 
 	// Write all top-level boxes in order, substituting the moov (matched by
 	// offset: the passed-in pointer comes from a different scan).
-	for _, b := range top {
-		if b.typ == m4aMoovType && b.offset == moov.offset {
-			head := make([]byte, 8)
-			binary.BigEndian.PutUint32(head[0:4], uint32(8+len(newMoovPayload)))
-			copy(head[4:8], m4aMoovType[:])
-			if _, err := tmp.Write(head); err != nil {
-				tmp.Close()
+	writeErr := func() error {
+		for _, b := range top {
+			if b.typ == m4aMoovType && b.offset == moov.offset {
+				head := make([]byte, 8)
+				binary.BigEndian.PutUint32(head[0:4], uint32(8+len(newMoovPayload)))
+				copy(head[4:8], m4aMoovType[:])
+				if _, err := tmp.Write(head); err != nil {
+					return err
+				}
+				if _, err := tmp.Write(newMoovPayload); err != nil {
+					return err
+				}
+				continue
+			}
+			// Verbatim copy of the original bytes (header + payload).
+			if _, err := f.Seek(b.offset, 0); err != nil {
 				return err
 			}
-			if _, err := tmp.Write(newMoovPayload); err != nil {
-				tmp.Close()
+			if _, err := io.CopyN(tmp, f, b.size); err != nil {
 				return err
 			}
-			continue
 		}
-		// Verbatim copy of the original bytes (header + payload).
-		if _, err := f.Seek(b.offset, 0); err != nil {
-			tmp.Close()
-			return err
-		}
-		if _, err := io.CopyN(tmp, f, b.size); err != nil {
-			tmp.Close()
-			return err
-		}
-	}
-	if err := tmp.Close(); err != nil {
-		return err
+		return tmp.Close()
+	}()
+	f.Close() // BEFORE the rename: Windows denies replacing open files
+	if writeErr != nil {
+		return writeErr
 	}
 	if err := os.Chmod(tmpName, st.Mode().Perm()); err != nil {
 		return err

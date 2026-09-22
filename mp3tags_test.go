@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -100,8 +99,11 @@ func TestResolveMediaPath(t *testing.T) {
 	if err := os.MkdirAll(eng, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	depth := len(strings.Split(filepath.ToSlash(filepath.Clean(eng)), "/")) - 1
-	engRel := strings.Repeat("../", depth) + strings.TrimPrefix(filepath.ToSlash(song), "/")
+	engRel, err := filepath.Rel(eng, song)
+	if err != nil {
+		t.Fatal(err)
+	}
+	engRel = filepath.ToSlash(engRel)
 	if got := ResolveMediaPath(dbDir, "", eng, engRel); got != song {
 		t.Errorf("engine-relative climb: got %q, want %q", got, song)
 	}
