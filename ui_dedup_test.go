@@ -11,8 +11,8 @@ import (
 
 func TestCanonicalPath(t *testing.T) {
 	cases := []struct{ in, want string }{
-		{"/Volumes/Macintosh HD/Users/prune/Music/x.mp3", "/Users/prune/Music/x.mp3"},
-		{"/Users/prune/Music/x.mp3", "/Users/prune/Music/x.mp3"},
+		{"/Volumes/Macintosh HD/Users/you/Music/x.mp3", "/Users/you/Music/x.mp3"},
+		{"/Users/you/Music/x.mp3", "/Users/you/Music/x.mp3"},
 		{"/Volumes/OtherDisk/Music/x.mp3", "/Volumes/OtherDisk/Music/x.mp3"}, // non-default mounts kept
 	}
 	for _, tc := range cases {

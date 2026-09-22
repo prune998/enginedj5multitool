@@ -47,7 +47,7 @@ var (
 	discogsSearchURL   = "https://api.discogs.com/database/search"
 )
 
-const userAgent = "enginedj5multitool/1.0 ( https://github.com/prune998/enginedj5multitool )"
+const userAgent = "enginedj5multitool/1.0"
 
 var artHTTPClient = &http.Client{Timeout: 20 * time.Second}
 

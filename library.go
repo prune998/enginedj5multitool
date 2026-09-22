@@ -192,7 +192,7 @@ func ResolveMediaPath(dbDir, musicRoot, engineLib, relPath string) string {
 		candidates = append(candidates, filepath.Join(musicRoot, trimmed))
 	}
 	// "/Volumes/Macintosh HD" is the default (/) mountpoint, so strip it:
-	// Volumes/Macintosh HD/Users/prune/Music/x.mp3 → /Users/prune/Music/x.mp3
+	// Volumes/Macintosh HD/Users/you/Music/x.mp3 → /Users/you/Music/x.mp3
 	if rest, ok := strings.CutPrefix(trimmed, strings.TrimPrefix(macVolumeAlias, "/")+"/"); ok {
 		candidates = append(candidates, "/"+rest)
 	}
