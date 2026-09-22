@@ -44,8 +44,9 @@ func init() {
 // App is the shared application state: database handle, track list, and the
 // currently selected track. Tools receive it in View.
 type App struct {
-	DBPath    string
-	MusicRoot string
+	DBPath        string
+	MusicRoot     string
+	EngineLibrary string
 
 	lib       *Library
 	LibErrStr string
@@ -115,6 +116,10 @@ func (a *App) Refresh() {
 		a.lib = nil
 	}
 	lib, err := OpenLibrary(a.DBPath, false)
+	if err == nil {
+		lib.MusicRoot = a.MusicRoot
+		lib.EngineLibrary = a.EngineLibrary
+	}
 	if err != nil {
 		a.lib = nil
 		a.LibErrStr = err.Error()

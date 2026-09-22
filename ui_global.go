@@ -91,7 +91,7 @@ func (t *GlobalTool) Apply(a *App) (changed, unchanged, failed, skipped int) {
 			continue
 		}
 
-		path := ResolveMediaPath(a.lib.Dir, a.MusicRoot, rec.Path)
+		path := a.lib.ResolveMedia(rec.Path)
 		if st, err := os.Stat(path); err != nil || st.IsDir() {
 			failed++
 			rep.lines = append(rep.lines, reportLine{fmt.Sprintf("#%d: file not found", rec.ID), "err"})

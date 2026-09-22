@@ -22,6 +22,9 @@ type Library struct {
 	DB  *sql.DB
 	Dir string // directory containing the database
 
+	MusicRoot     string // optional root used to resolve relative track paths
+	EngineLibrary string // Engine Library folder (e.g. ~/Music/Engine Library)
+
 	q *db.Queries
 }
 
@@ -128,11 +131,19 @@ func (l *Library) FixTrack(rec TrackRecord, dryRun bool) (*FixResult, error) {
 	return res, nil
 }
 
+// ResolveMedia turns the (often relative) path stored in the Track table into
+// a usable filesystem path using the library's configured roots.
+func (l *Library) ResolveMedia(relPath string) string {
+	return ResolveMediaPath(l.Dir, l.MusicRoot, l.EngineLibrary, relPath)
+}
+
 // ResolveMediaPath turns the (often relative) path stored in the Track table
 // into a usable filesystem path. Engine DJ databases frequently store paths
 // with "../" chains relative to a volume root that no longer matches the DB
-// location, so several candidates are tried.
-func ResolveMediaPath(dbDir, musicRoot, relPath string) string {
+// location, so several candidates are tried: the music root, the Engine
+// Library folder (e.g. /Users/me/Music/Engine Library), the DB directory and
+// a root-anchored form of the trimmed path.
+func ResolveMediaPath(dbDir, musicRoot, engineLib, relPath string) string {
 	if relPath == "" {
 		return ""
 	}
@@ -152,6 +163,9 @@ func ResolveMediaPath(dbDir, musicRoot, relPath string) string {
 	var candidates []string
 	if musicRoot != "" {
 		candidates = append(candidates, filepath.Join(musicRoot, trimmed))
+	}
+	if engineLib != "" {
+		candidates = append(candidates, filepath.Join(engineLib, trimmed))
 	}
 	candidates = append(candidates,
 		filepath.Join(dbDir, relPath),

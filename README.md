@@ -85,7 +85,9 @@ Other UI features:
 
 Files are located via the path stored in the `Track` table: absolute paths,
 paths relative to the database directory, `../`-chains resolved against the
-DB location, or relative to the *music root* from the top bar.
+DB location, the Engine Library folder (config/Settings, auto-detected at
+`~/Music/Engine Library` when it exists), or relative to the *music root*
+from the top bar.
 
 Useful flags:
 
@@ -305,6 +307,7 @@ Windows — override with the `ENGINDJ5_CONFIG_DIR` env var):
 ```yaml
 library: m.db            # default Engine DJ database path
 music_root: ""           # optional root used to resolve relative track paths
+engine_library: ""       # Engine Library folder (path resolution root)
 theme: auto              # auto | light | dark
 tool: 0                  # tool tab opened at startup
 browser_width: 560       # track list width

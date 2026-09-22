@@ -41,6 +41,11 @@ func (t *ConfigTool) View(a *App) {
 			a.L("Music root (used to resolve relative track paths)", FontSize(11), TextColorVec(a.pal().textDim))
 			a.input(&t.draft.MusicRoot, DefaultTextInputAttrs())
 		})
+		// Engine Library folder
+		Container(Attrs(Gap(2)), func() {
+			a.L("Engine Library folder (e.g. /Users/me/Music/Engine Library)", FontSize(11), TextColorVec(a.pal().textDim))
+			a.input(&t.draft.EngineLibrary, DefaultTextInputAttrs())
+		})
 		// Discogs token
 		Container(Attrs(Gap(2)), func() {
 			a.L("Discogs personal access token (artwork search) — discogs.com → Settings → Developers",

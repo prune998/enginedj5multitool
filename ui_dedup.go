@@ -104,7 +104,7 @@ func (t *DedupTool) scanSync(a *App) ([]dupGroup, int) {
 		if rec.Path == "" {
 			continue
 		}
-		path := ResolveMediaPath(a.lib.Dir, a.MusicRoot, rec.Path)
+		path := a.lib.ResolveMedia(rec.Path)
 		if _, ok := byPath[path]; !ok {
 			order = append(order, path)
 		}

@@ -15,14 +15,15 @@ import (
 // rewritten on exit with the session's settings (theme, tool, browser width,
 // Discogs token).
 type Config struct {
-	Library      string  `yaml:"library"`       // default Engine DJ database path
-	MusicRoot    string  `yaml:"music_root"`    // optional root used to resolve relative track paths
-	Theme        string  `yaml:"theme"`         // auto | light | dark
-	Tool         int     `yaml:"tool"`          // tool tab opened at startup (0 = Cues & Loops, 1 = MP3 Tags)
-	BrowserWidth float32 `yaml:"browser_width"` // track list width in points
-	WindowWidth  float64 `yaml:"window_width"`  // main window width (saved on quit; 0 = default)
-	WindowHeight float64 `yaml:"window_height"` // main window height (saved on quit; 0 = default)
-	DiscogsToken string  `yaml:"discogs_token"` // personal access token for artwork search
+	Library       string  `yaml:"library"`        // default Engine DJ database path
+	MusicRoot     string  `yaml:"music_root"`     // optional root used to resolve relative track paths
+	EngineLibrary string  `yaml:"engine_library"` // Engine Library folder (e.g. ~/Music/Engine Library)
+	Theme         string  `yaml:"theme"`          // auto | light | dark
+	Tool          int     `yaml:"tool"`           // tool tab opened at startup
+	BrowserWidth  float32 `yaml:"browser_width"`  // track list width in points
+	WindowWidth   float64 `yaml:"window_width"`   // main window width (saved on quit; 0 = default)
+	WindowHeight  float64 `yaml:"window_height"`  // main window height (saved on quit; 0 = default)
+	DiscogsToken  string  `yaml:"discogs_token"`  // personal access token for artwork search
 }
 
 func defaultConfig() Config {
@@ -96,6 +97,9 @@ func LoadOrCreateConfig() LoadedConfig {
 	if lc.Library == "" {
 		lc.Library = def.Library
 	}
+	if lc.EngineLibrary == "" {
+		lc.EngineLibrary = defaultEngineLibrary()
+	}
 	if lc.Theme == "" {
 		lc.Theme = def.Theme
 	}
@@ -106,6 +110,20 @@ func LoadOrCreateConfig() LoadedConfig {
 		lc.BrowserWidth = def.BrowserWidth
 	}
 	return lc
+}
+
+// defaultEngineLibrary returns the standard Engine Library folder
+// (~/Music/Engine Library) when it exists, else "".
+func defaultEngineLibrary() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	p := filepath.Join(home, "Music", "Engine Library")
+	if st, err := os.Stat(p); err == nil && st.IsDir() {
+		return p
+	}
+	return ""
 }
 
 // SaveConfigFile writes the config as YAML, creating the directory if needed.

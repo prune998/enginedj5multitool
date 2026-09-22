@@ -280,7 +280,7 @@ func (t *TagsTool) ensureLoaded(a *App, rec TrackRecord) {
 	t.lastSel = a.Selected
 	t.saved = false
 	t.pending, t.pendingSrc, t.artBusy, t.artErr = nil, "", "", ""
-	t.path = ResolveMediaPath(a.lib.Dir, a.MusicRoot, rec.Path)
+	t.path = a.lib.ResolveMedia(rec.Path)
 	t.tags = MediaTags{}
 	t.art = nil
 	t.readErr, t.pathErr = "", ""

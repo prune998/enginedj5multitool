@@ -346,7 +346,7 @@ func (t *RelinkTool) scanSync(a *App) (*relinkReport, []missingTrack) {
 		if rec.Path == "" {
 			continue
 		}
-		path := ResolveMediaPath(a.lib.Dir, a.MusicRoot, rec.Path)
+		path := a.lib.ResolveMedia(rec.Path)
 		if st, err := os.Stat(path); err == nil && !st.IsDir() {
 			rep.found++
 			continue

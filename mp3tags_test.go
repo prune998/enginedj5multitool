@@ -90,7 +90,7 @@ func TestResolveMediaPath(t *testing.T) {
 	if err := os.WriteFile(song, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := ResolveMediaPath(dbDir, "", "../lib/song.mp3"); got != song {
+	if got := ResolveMediaPath(dbDir, "", "", "../lib/song.mp3"); got != song {
 		t.Errorf("relative to dbDir: got %q, want %q", got, song)
 	}
 
@@ -104,17 +104,17 @@ func TestResolveMediaPath(t *testing.T) {
 	if err := os.WriteFile(song2, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := ResolveMediaPath(dbDir, musicRoot, "artist/song.mp3"); got != song2 {
+	if got := ResolveMediaPath(dbDir, musicRoot, "", "artist/song.mp3"); got != song2 {
 		t.Errorf("musicRoot: got %q, want %q", got, song2)
 	}
 
 	// Absolute paths pass through untouched.
-	if got := ResolveMediaPath(dbDir, musicRoot, song); got != song {
+	if got := ResolveMediaPath(dbDir, musicRoot, "", song); got != song {
 		t.Errorf("absolute: got %q, want %q", got, song)
 	}
 
 	// Unresolvable path: falls back to a plausible candidate (no crash).
-	got := ResolveMediaPath(dbDir, "", "../../nope/song.mp3")
+	got := ResolveMediaPath(dbDir, "", "", "../../nope/song.mp3")
 	if got == "" {
 		t.Error("expected fallback candidate, got empty string")
 	}
@@ -141,5 +141,20 @@ func TestParseYear(t *testing.T) {
 	}
 	if _, ok := parseYear("not-a-year"); ok {
 		t.Error("garbage year should not parse")
+	}
+}
+
+func TestResolveMediaPathEngineLibrary(t *testing.T) {
+	dir := t.TempDir()
+	eng := filepath.Join(dir, "Engine Library")
+	if err := os.MkdirAll(filepath.Join(eng, "Artist"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	song := filepath.Join(eng, "Artist", "Song.mp3")
+	if err := os.WriteFile(song, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := ResolveMediaPath(dir, "", eng, "Artist/Song.mp3"); got != song {
+		t.Errorf("engine-library candidate: got %q, want %q", got, song)
 	}
 }
