@@ -90,8 +90,50 @@ func TestResolveMediaPath(t *testing.T) {
 	if err := os.WriteFile(song, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := ResolveMediaPath(dbDir, "", "../lib/song.mp3"); got != song {
+	if got := ResolveMediaPath(dbDir, "", "", "../lib/song.mp3"); got != song {
 		t.Errorf("relative to dbDir: got %q, want %q", got, song)
+	}
+	// With an Engine Library folder configured, the stored path resolves
+	// against IT (../ chains climb out of the Engine Library folder).
+	eng := filepath.Join(root, "Engine Library")
+	if err := os.MkdirAll(eng, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	engRel, err := filepath.Rel(eng, song)
+	if err != nil {
+		t.Fatal(err)
+	}
+	engRel = filepath.ToSlash(engRel)
+	if got := ResolveMediaPath(dbDir, "", eng, engRel); got != song {
+		t.Errorf("engine-relative climb: got %q, want %q", got, song)
+	}
+
+	// Music.app media-tree flavors: the stored path is anchored at an artist
+	// folder inside ~/Music/Music/Media/Music, but the DB lives elsewhere.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // os.UserHomeDir on Windows reads this
+	mediaMusic := filepath.Join(home, "Music", "Music", "Media", "Music")
+	artistDir := filepath.Join(mediaMusic, "Aerosmith")
+	if err := os.MkdirAll(artistDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mediaSong := filepath.Join(artistDir, "Sweet Emotion.mp3")
+	if err := os.WriteFile(mediaSong, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// ../Music/Media/Music/<artist>/<file> → resolved via the home Music root.
+	if got := ResolveMediaPath(dbDir, "", "", "../Music/Media/Music/Aerosmith/Sweet Emotion.mp3"); got != mediaSong {
+		t.Errorf("../Music flavor: got %q, want %q", got, mediaSong)
+	}
+	// ./Music/Media/Music/<artist>/<file> → same target.
+	if got := ResolveMediaPath(dbDir, "", "", "./Music/Media/Music/Aerosmith/Sweet Emotion.mp3"); got != mediaSong {
+		t.Errorf("./Music flavor: got %q, want %q", got, mediaSong)
+	}
+	// Artist-anchored flavor ../<artist>/<file> → resolved via the media
+	// Music root with the dots stripped.
+	if got := ResolveMediaPath(dbDir, "", "", "../Aerosmith/Sweet Emotion.mp3"); got != mediaSong {
+		t.Errorf("artist-anchored flavor: got %q, want %q", got, mediaSong)
 	}
 
 	// musicRoot override wins when the file exists there.
@@ -104,17 +146,17 @@ func TestResolveMediaPath(t *testing.T) {
 	if err := os.WriteFile(song2, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := ResolveMediaPath(dbDir, musicRoot, "artist/song.mp3"); got != song2 {
+	if got := ResolveMediaPath(dbDir, musicRoot, "", "artist/song.mp3"); got != song2 {
 		t.Errorf("musicRoot: got %q, want %q", got, song2)
 	}
 
 	// Absolute paths pass through untouched.
-	if got := ResolveMediaPath(dbDir, musicRoot, song); got != song {
+	if got := ResolveMediaPath(dbDir, musicRoot, "", song); got != song {
 		t.Errorf("absolute: got %q, want %q", got, song)
 	}
 
 	// Unresolvable path: falls back to a plausible candidate (no crash).
-	got := ResolveMediaPath(dbDir, "", "../../nope/song.mp3")
+	got := ResolveMediaPath(dbDir, "", "", "../../nope/song.mp3")
 	if got == "" {
 		t.Error("expected fallback candidate, got empty string")
 	}
@@ -141,5 +183,20 @@ func TestParseYear(t *testing.T) {
 	}
 	if _, ok := parseYear("not-a-year"); ok {
 		t.Error("garbage year should not parse")
+	}
+}
+
+func TestResolveMediaPathEngineLibrary(t *testing.T) {
+	dir := t.TempDir()
+	eng := filepath.Join(dir, "Engine Library")
+	if err := os.MkdirAll(filepath.Join(eng, "Artist"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	song := filepath.Join(eng, "Artist", "Song.mp3")
+	if err := os.WriteFile(song, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := ResolveMediaPath(dir, "", eng, "Artist/Song.mp3"); got != song {
+		t.Errorf("engine-library candidate: got %q, want %q", got, song)
 	}
 }

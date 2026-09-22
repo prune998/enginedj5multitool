@@ -1,1 +1,16 @@
+# build outputs
+enginedj5multitool
+enginedj5multitool.exe
+dist/
+
+# user data
 m.db
+*.db-journal
+
+# go
+*.test
+
+# generated app icon + mac bundle
+assets/icon.png
+assets/icon.icns
+*.app

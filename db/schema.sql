@@ -1,0 +1,60 @@
+-- Engine DJ v5 database schema (the subset of m.db used by this tool).
+-- Columns are NOT NULL where this tool always coalesces values, so sqlc can
+-- infer concrete types for IFNULL expressions.
+
+CREATE TABLE Track (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	playOrder INTEGER NOT NULL,
+	length INTEGER NOT NULL,
+	bpm INTEGER NOT NULL,
+	year INTEGER NOT NULL,
+	path TEXT NOT NULL,
+	filename TEXT NOT NULL,
+	bitrate INTEGER,
+	bpmAnalyzed REAL NOT NULL,
+	albumArtId INTEGER,
+	fileBytes INTEGER,
+	title TEXT NOT NULL,
+	artist TEXT NOT NULL,
+	album TEXT NOT NULL,
+	genre TEXT NOT NULL,
+	comment TEXT NOT NULL,
+	label TEXT,
+	composer TEXT NOT NULL,
+	remixer TEXT,
+	"key" INTEGER NOT NULL,
+	rating INTEGER NOT NULL,
+	albumArt TEXT,
+	timeLastPlayed DATETIME,
+	isPlayed BOOLEAN,
+	fileType TEXT NOT NULL,
+	isAnalyzed BOOLEAN,
+	dateCreated DATETIME,
+	dateAdded DATETIME,
+	isAvailable BOOLEAN,
+	isMetadataOfPackedTrackChanged BOOLEAN,
+	isPerfomanceDataOfPackedTrackChanged BOOLEAN,
+	playedIndicator INTEGER,
+	isMetadataImported BOOLEAN,
+	pdbImportKey INTEGER,
+	streamingSource TEXT,
+	uri TEXT,
+	isBeatGridLocked BOOLEAN,
+	originDatabaseUuid TEXT,
+	originTrackId INTEGER,
+	streamingFlags INTEGER,
+	explicitLyrics BOOLEAN,
+	lastEditTime DATETIME,
+	albumArtSourceHash CHAR(40)
+);
+
+CREATE TABLE PerformanceData (
+	trackId INTEGER PRIMARY KEY,
+	trackData BLOB,
+	overviewWaveFormData BLOB,
+	beatData BLOB,
+	quickCues BLOB,
+	loops BLOB,
+	thirdPartySourceId INTEGER,
+	activeOnLoadLoops INTEGER NOT NULL
+);

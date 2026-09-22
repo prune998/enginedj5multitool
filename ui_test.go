@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -26,7 +27,9 @@ func buildTestLibrary(t *testing.T) string {
 	schema := `
 	CREATE TABLE Track (
 		id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, artist TEXT, album TEXT,
-		filename TEXT, path TEXT, fileType TEXT, bpmAnalyzed REAL, length INTEGER
+		filename TEXT, path TEXT, fileType TEXT, bpmAnalyzed REAL, length INTEGER,
+		bpm INTEGER, year INTEGER, playOrder INTEGER, genre TEXT, comment TEXT, composer TEXT,
+		rating INTEGER, key INTEGER, fileBytes INTEGER
 	);
 	CREATE TABLE PerformanceData (
 		trackId INTEGER PRIMARY KEY, trackData BLOB, quickCues BLOB, loops BLOB, activeOnLoadLoops INTEGER
@@ -35,16 +38,21 @@ func buildTestLibrary(t *testing.T) string {
 		t.Fatal(err)
 	}
 	tracks := []struct {
-		id    int64
-		title string
-		art   string
+		id        int64
+		title     string
+		art       string
+		rating    int64
+		key       int64
+		comment   string
+		fileBytes int64
 	}{
-		{5, "Emotion", "Purple Disco Machine"},
-		{7, "Galaxy", "Alex Metric"},
+		{5, "Emotion", "Purple Disco Machine", 20, 10, "#atag #cued", 1024}, // 10 = 1B (B major)
+		{7, "Galaxy", "Alex Metric", 0, -1, "", 2048},                       // no key
 	}
 	for _, tr := range tracks {
-		if _, err := db.Exec(`INSERT INTO Track (id, title, artist, filename, path, fileType, bpmAnalyzed, length)
-			VALUES (?, ?, ?, ?, ?, 'mp3', 124.0, 200)`, tr.id, tr.title, tr.art, tr.title+".mp3", tr.title+".mp3"); err != nil {
+		if _, err := db.Exec(`INSERT INTO Track (id, title, artist, filename, path, fileType, bpmAnalyzed, length, bpm, year, playOrder, rating, key, comment, fileBytes)
+			VALUES (?, ?, ?, ?, ?, 'mp3', 124.0, 200, 124, 2024, 3, ?, ?, ?, ?)`,
+			tr.id, tr.title, tr.art, tr.title+".mp3", tr.title+".mp3", tr.rating, tr.key, tr.comment, tr.fileBytes); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := db.Exec(`INSERT INTO PerformanceData (trackId, trackData, quickCues, loops, activeOnLoadLoops)
@@ -55,15 +63,90 @@ func buildTestLibrary(t *testing.T) string {
 	return path
 }
 
+// TestDriveFilterReturnKey focuses the filter box, types a query and presses
+// Return: the search must run without touching the Search button.
+func TestDriveFilterReturnKey(t *testing.T) {
+	if raceEnabled {
+		t.Skip("drive harness races under -race (global shirei state)")
+	}
+	InitFontSubsystem()
+	ResetInputSession()
+	GetHost().WindowSize = Vec2{1180, 740}
+
+	a := NewApp(buildTestLibrary(t))
+	defer a.Close() // release the DB handle (Windows file locks)
+	if a.TrackCount != 2 {
+		t.Fatalf("expected 2 unfiltered tracks, got %d", a.TrackCount)
+	}
+
+	port, err := drive.FreePort()
+	if err != nil {
+		t.Fatal(err)
+	}
+	AcceptInputCommands(port)
+
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				RunFrameFn(a.RootView)
+				time.Sleep(8 * time.Millisecond)
+			}
+		}
+	}()
+	defer func() {
+		close(stop)
+		wg.Wait()
+		a.lib.Close()
+	}()
+
+	time.Sleep(60 * time.Millisecond)
+
+	// Focus the filter box and type the query.
+	if _, err := drive.ClickOne(port, "filter-input"); err != nil {
+		t.Fatalf("click filter-input: %v", err)
+	}
+	time.Sleep(40 * time.Millisecond)
+	if err := drive.Text(port, "Emotion"); err != nil {
+		t.Fatalf("type query: %v", err)
+	}
+	time.Sleep(60 * time.Millisecond)
+	if a.Filter != "" {
+		t.Fatalf("typing must not auto-search: a.Filter = %q", a.Filter)
+	}
+
+	// Return runs the search.
+	if err := drive.Key(port, "return"); err != nil {
+		t.Fatalf("key return: %v", err)
+	}
+	time.Sleep(80 * time.Millisecond)
+	if a.Filter != "Emotion" {
+		t.Fatalf("after Return: a.Filter = %q, want \"Emotion\"", a.Filter)
+	}
+	if a.TrackCount != 1 {
+		t.Errorf("after Return: a.TrackCount = %d, want 1", a.TrackCount)
+	}
+}
+
 // TestDriveTrackSelection clicks rows in the track browser via shirei's drive
 // harness and verifies the selection updates and the tools follow along.
 func TestDriveTrackSelection(t *testing.T) {
+	if raceEnabled {
+		t.Skip("drive harness races under -race (global shirei state)")
+	}
 	InitFontSubsystem()
 	ResetInputSession()
 	GetHost().WindowSize = Vec2{1180, 740}
 
 	dbPath := buildTestLibrary(t)
 	a := NewApp(dbPath)
+	defer a.Close() // release the DB handle (Windows file locks)
 	if len(a.Tracks) != 2 {
 		t.Fatalf("expected 2 tracks, got %d", len(a.Tracks))
 	}
@@ -121,11 +204,228 @@ func TestDriveTrackSelection(t *testing.T) {
 	if cues.lastSel != 5 || cues.rec.ID != 5 {
 		t.Errorf("cues tool did not follow selection: lastSel=%d rec=%d", cues.lastSel, cues.rec.ID)
 	}
+
+	// Arrow keys navigate the list in display (artist) order:
+	// Alex Metric (7) sorts before Purple Disco Machine (5), so from track-5
+	// "up" selects track-7, "down" goes back, and a second "up" clamps at the
+	// first row.
+	if err := drive.Key(port, "up"); err != nil {
+		t.Fatalf("key up: %v", err)
+	}
+	time.Sleep(40 * time.Millisecond)
+	if a.Selected != 7 {
+		t.Fatalf("after arrow-up: a.Selected = %d, want 7", a.Selected)
+	}
+	if err := drive.Key(port, "down"); err != nil {
+		t.Fatalf("key down: %v", err)
+	}
+	time.Sleep(40 * time.Millisecond)
+	if a.Selected != 5 {
+		t.Fatalf("after arrow-down: a.Selected = %d, want 5", a.Selected)
+	}
+	if a.listScroll < 0 {
+		t.Errorf("listScroll = %v, want >= 0 after navigation", a.listScroll)
+	}
+	if err := drive.Key(port, "up"); err != nil {
+		t.Fatalf("key up: %v", err)
+	}
+	time.Sleep(40 * time.Millisecond)
+	if a.Selected != 7 {
+		t.Fatalf("after arrow-up: a.Selected = %d, want 7", a.Selected)
+	}
+	if err := drive.Key(port, "up"); err != nil {
+		t.Fatalf("key up at first row: %v", err)
+	}
+	time.Sleep(40 * time.Millisecond)
+	if a.Selected != 7 {
+		t.Fatalf("arrow-up past the first row moved selection: a.Selected = %d, want 7", a.Selected)
+	}
+}
+
+// TestDriveQuitShortcut verifies the Cmd-Q (Ctrl-Q on non-mac) shortcut
+// triggers the app quit path, and that a plain "q" keypress does not.
+func TestDriveQuitShortcut(t *testing.T) {
+	if raceEnabled {
+		t.Skip("drive harness races under -race (global shirei state)")
+	}
+	InitFontSubsystem()
+	ResetInputSession()
+	GetHost().WindowSize = Vec2{1180, 740}
+
+	dbPath := buildTestLibrary(t)
+	a := NewApp(dbPath)
+	defer a.Close() // release the DB handle (Windows file locks)
+
+	var quitCalled atomic.Bool
+	a.onQuit = func() { quitCalled.Store(true) }
+
+	port, err := drive.FreePort()
+	if err != nil {
+		t.Fatal(err)
+	}
+	AcceptInputCommands(port)
+
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				RunFrameFn(a.RootView)
+				time.Sleep(8 * time.Millisecond)
+			}
+		}
+	}()
+	defer func() {
+		close(stop)
+		wg.Wait()
+		a.lib.Close()
+	}()
+
+	time.Sleep(60 * time.Millisecond)
+
+	// Plain "q" (e.g. typed into a field) must not quit.
+	if err := drive.Key(port, "q"); err != nil {
+		t.Fatalf("plain q: %v", err)
+	}
+	time.Sleep(40 * time.Millisecond)
+	if quitCalled.Load() {
+		t.Fatal("plain q triggered quit")
+	}
+
+	// Cmd-Q quits.
+	if err := drive.Key(port, "q", "cmd"); err != nil {
+		t.Fatalf("cmd-q: %v", err)
+	}
+	time.Sleep(60 * time.Millisecond)
+	if !quitCalled.Load() {
+		t.Fatal("Cmd-Q did not trigger quit")
+	}
+}
+
+// TestGlobalEditCommentTags runs the Global Edit tool over the test library:
+// track 5 carries the real 5-cue/3-loop fixture blobs, so it must gain
+// "#cued" and "#looped" (sorted into the comment), while track 7 (no cues,
+// no loops) stays untouched.
+func TestGlobalEditCommentTags(t *testing.T) {
+	dbPath := buildTestLibrary(t)
+	dir := filepath.Dir(dbPath)
+	mp3 := filepath.Join(dir, "Emotion.mp3")
+	mp3b := filepath.Join(dir, "Galaxy.mp3")
+	if err := os.WriteFile(mp3, bytes.Repeat([]byte{0xFF, 0xFB, 0x90, 0x00}, 256), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(mp3b, bytes.Repeat([]byte{0xFF, 0xFB, 0x90, 0x00}, 256), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	{
+		db, err := sql.Open("sqlite", dbPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer db.Close()
+		if _, err := db.Exec(`UPDATE Track SET path = ? WHERE id = 5`, mp3); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`UPDATE Track SET path = ? WHERE id = 7`, mp3b); err != nil {
+			t.Fatal(err)
+		}
+		// Real performance blobs: 5 cues + 3 loops on track 5.
+		if _, err := db.Exec(`UPDATE PerformanceData SET quickCues = ?, loops = ? WHERE trackId = 5`,
+			mustHex(t, fixtTrack5QuickCues), mustHex(t, fixtTrack5Loops)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	a := NewApp(dbPath)
+	defer a.Close() // release the DB handle (Windows file locks)
+	// Seed the file comment (unsorted, with a non-tag word).
+	if err := SaveMediaTags(mp3, MediaTags{Title: "Emotion", Comment: "#ztag some note #atag"}); err != nil {
+		t.Fatal(err)
+	}
+
+	g := a.Tools[2].(*GlobalTool)
+	g.sortTags, g.addTags, g.alsoDB = true, true, true
+	g.dryRun = false
+	changed, unchanged, failed, skipped := g.Apply(a)
+
+	if changed != 1 || unchanged != 1 || failed != 0 || skipped != 0 {
+		t.Fatalf("apply: changed=%d unchanged=%d failed=%d skipped=%d", changed, unchanged, failed, skipped)
+	}
+
+	// File comment: tags sorted, #cued + #looped added, non-tag words kept.
+	tags, err := ReadMediaTags(mp3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "#atag #cued #looped #ztag some note"
+	if tags.Comment != want {
+		t.Errorf("file comment = %q, want %q", tags.Comment, want)
+	}
+
+	// DB comment synced as well.
+	db, err := sql.Open("sqlite", dbPath+"?mode=ro")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var dbComment string
+	if err := db.QueryRow(`SELECT comment FROM Track WHERE id = 5`).Scan(&dbComment); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	if dbComment != want {
+		t.Errorf("DB comment = %q, want %q", dbComment, want)
+	}
+
+	// A second run is a no-op (already sorted, tags present).
+	changed, _, _, _ = g.Apply(a)
+	if changed != 0 {
+		t.Errorf("second run changed %d track(s), want 0", changed)
+	}
+}
+
+// TestTracksFilterMatchesComment verifies that the search filter also matches
+// the comment field.
+func TestTracksFilterMatchesComment(t *testing.T) {
+	a := NewApp(buildTestLibrary(t))
+	defer a.lib.Close()
+
+	for _, f := range []string{"#atag", "#cued", "atag"} {
+		tracks, err := a.lib.Tracks(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(tracks) != 1 || tracks[0].ID != 5 {
+			t.Errorf("filter %q: got %d track(s) (first id %v), want track 5", f, len(tracks), firstID(tracks))
+		}
+	}
+	// Non-matching comment → nothing.
+	if tracks, _ := a.lib.Tracks("#nosuchtag"); len(tracks) != 0 {
+		t.Errorf("filter #nosuchtag returned %d tracks, want 0", len(tracks))
+	}
+	// Empty filter → everything.
+	if tracks, _ := a.lib.Tracks(""); len(tracks) != 2 {
+		t.Errorf("empty filter returned %d tracks, want 2", len(tracks))
+	}
+}
+
+func firstID(tracks []TrackRecord) any {
+	if len(tracks) == 0 {
+		return nil
+	}
+	return tracks[0].ID
 }
 
 // TestDriveTagsToolLoad exercises the tag editor end to end: clicking a track
 // loads its ID3v2 tags from the file into the form.
 func TestDriveTagsToolLoad(t *testing.T) {
+	if raceEnabled {
+		t.Skip("drive harness races under -race (global shirei state)")
+	}
 	InitFontSubsystem()
 	ResetInputSession()
 	GetHost().WindowSize = Vec2{1180, 740}
@@ -154,6 +454,7 @@ func TestDriveTagsToolLoad(t *testing.T) {
 	}
 
 	a := NewApp(dbPath)
+	defer a.Close() // release the DB handle (Windows file locks)
 	tags := a.Tools[1].(*TagsTool)
 
 	port, err := drive.FreePort()
@@ -204,6 +505,29 @@ func TestDriveTagsToolLoad(t *testing.T) {
 	}
 	if tags.path != mp3 {
 		t.Errorf("resolved path = %q, want %q", tags.path, mp3)
+	}
+
+	// Click the 4th rating star: the rating is written to the DB immediately
+	// and the in-memory track list follows.
+	if _, err := drive.ClickOne(port, "rating-star-4"); err != nil {
+		t.Fatalf("click rating-star-4: %v", err)
+	}
+	time.Sleep(80 * time.Millisecond)
+
+	db, err := sql.Open("sqlite", dbPath+"?mode=ro")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var dbRating int64
+	if err := db.QueryRow(`SELECT rating FROM Track WHERE id = 5`).Scan(&dbRating); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	if dbRating != 80 {
+		t.Errorf("DB rating after clicking star-4 = %d, want 80", dbRating)
+	}
+	if a.Tracks[1].Rating != 80 { // ordered by artist: Alex Metric(7), Purple Disco Machine(5)
+		t.Errorf("in-memory rating = %d, want 80", a.Tracks[1].Rating)
 	}
 
 	// Sanity: the file's tag is untouched and readable by the library itself.

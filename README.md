@@ -1,5 +1,7 @@
 # enginedj5multitool
 
+[![CI](https://github.com/prune998/enginedj5multitool/actions/workflows/ci.yml/badge.svg)](https://github.com/prune998/enginedj5multitool/actions/workflows/ci.yml)
+
 A CLI + GUI tool to inspect and fix the performance data (hot cues and loops)
 stored in an **Engine DJ v5** database (`m.db`), used by Denon DJ SC/LC/Prime
 gear and Engine DJ Desktop. Built with the pure-Go UI toolkit
@@ -24,24 +26,89 @@ It can:
 ./enginedj5multitool -db /path/to/m.db
 ```
 
-The window has a top bar (library path, music root override, reload), a
-sidebar with the tools, and a shared track browser (search box + sortable,
-virtualized table; click a row to select it):
+The window has a top bar (library path, music root override, theme selector,
+reload), a sidebar with the tools, and a shared track browser (search box —
+**Return** runs the search — plus a sortable, virtualized table; click a row
+to select it, or navigate with the **↑/↓ arrow keys** — the detail panel and
+the list scroll follow along). The screenshots below are generated from a
+demo database with fictitious tracks (`make docs` regenerates them):
 
 - **Cues & Loops** — shows the 8 cue and 8 loop slots of the selected track
   with color swatches, timestamps and order status. `Dry run` previews the fix
   inline (per-slot `slot N ← M` changes); `Fix selected track` and
   `Fix all filtered (N)` apply it (writes only happen when dry run is off).
-- **MP3 Tags** — loads the ID3v2 tags of the selected MP3 from disk into an
-  editable form (title, artist, album, album artist, genre, year, track #,
-  disc #, composer, BPM, comment). `Save tags to file` rewrites the ID3v2 tag
-  in place (preserving the tag version, album art and all untouched frames;
-  tagless files get a new tag). With *Also update Engine DJ database* checked,
-  the matching `Track` row is updated so the library metadata stays in sync.
 
-Files are located via the path stored in the `Track` table: absolute paths,
-paths relative to the database directory, `../`-chains resolved against the
-DB location, or relative to the *music root* from the top bar.
+  ![Cues & Loops tool: track browser plus cue/loop slot table with colors and fix controls](docs/screenshot-cues.png)
+
+- **MP3 Tags** — shows the embedded cover art above the form and loads the
+  tags of the selected MP3 or M4A file from disk into an editable form (title,
+  artist, album, album artist, genre, year, track #, disc #, composer, BPM,
+  comment). The **5-star rating** above the form is stored in the Engine DJ
+  database (click a star to set it, click the single filled star again to
+  clear) **and mirrored into the file's POPM (popularimeter) ID3 frame** —
+  shown as a column in the track list. `Save changes` rewrites the
+  ID3v2 tag in place (preserving the tag version, album art and all untouched
+  frames; tagless files get a new tag). With *Also update Engine DJ database*
+  checked, the matching `Track` row is updated so the library metadata stays
+  in sync.
+
+  ![MP3 Tags tool: cover art, rating stars, editable tag form and #tag bubbles](docs/screenshot-tags.png)
+- **Artwork download** — when a track has no embedded cover (or to replace
+  it), fetch one from **MusicBrainz** (via the Cover Art Archive, no key
+  needed) or **Discogs** (requires a personal access token from
+  discogs.com → Settings → Developers). The search uses the **artist name and
+  song title** (falling back to the album), and the downloaded art is
+  previewed and embedded into the file when you press *Save changes*.
+- **Global Edit** — bulk comment maintenance for every track matching the
+  current filter: re-order the comment `#tags` alphabetically and add
+  `#cued` / `#looped` when a track has more than one cue or loop. Writes the
+  ID3 comment (preserving artwork/POPM via the padding-aware writer), can
+  sync the Engine DJ `Track.comment`, supports a dry run with a per-track
+  report, and skips files it doesn't need to touch.
+
+  ![Global Edit tool: bulk comment options with Apply to filtered button](docs/screenshot-global.png)
+- **Dedup** — finds groups of library entries that point to the same audio
+  file on disk and shows how their metadata (rating, key, track number)
+  differs. The first entry of each group is the keeper; extra entries can be
+  checked and removed from the database (the audio file is never touched).
+
+  ![Dedup tool: duplicate group with keeper and removable extra entry](docs/screenshot-dedup.png)
+
+- **Relink** — scans the library for tracks whose audio file is missing and
+  searches a root folder (defaulting to the Music app folder) for the moved
+  file — matching on file name, artist, album, title and file size — then
+  points `Track.path` at the new location. Ambiguous matches are reported
+  instead of guessed.
+
+  ![Relink tool: missing tracks with green relink proposals and checkboxes](docs/screenshot-relink.png)
+
+- **Settings** — edits `config.yaml` (library path, music root, Engine
+  Library folder, Discogs token, theme, browser width, font family and size)
+  with explicit Save/Reload.
+
+  ![Settings tool: config editor with demo values](docs/screenshot-settings.png)
+
+Other UI features:
+
+- **Dark mode** — the top bar has an `Auto | Light | Dark` selector; `Auto`
+  (the default) follows the OS appearance.
+- **Splitter** — the divider between the track list and the tool panel can be
+  dragged to resize them (min/max clamped).
+- **#tag bubbles** — `#tags` in the comment are rendered as colored bubbles
+  below the comment field: click one to remove it from the comment, or type a
+  new one and press `+ Add`. They are stored as plain `#tag` words in the
+  comment (the convention for genre/scene tagging).
+- **⌘Q / Ctrl-Q** quits the app.
+
+Files are located via the path stored in the `Track` table: per the Engine DJ
+spec, stored paths are **always relative to the Engine Library folder** — the
+`../` chains climb out of it toward the volume root (e.g.
+`../../../../Volumes/Macintosh HD/Users/prune/Music/…`). Resolution tries: the
+Engine Library folder (config/Settings, auto-detected at
+`~/Music/Engine Library` when it exists; falls back to the database
+directory), the *music root* from the top bar, and the root-anchored trimmed
+path. The macOS default volume alias (`/Volumes/Macintosh HD/…`) is mapped to
+the real path (`/Users/prune/Music/…`) and all tools display canonical paths.
 
 Useful flags:
 
@@ -49,7 +116,10 @@ Useful flags:
 |-------------|--------------------------------------------------------------------|
 | `-ui`       | Force the GUI (default when no CLI action flags are given)          |
 | `-tool N`   | Open tool tab N (0 = Cues & Loops, 1 = MP3 Tags)                    |
-| `-snapshot png` | Render one frame of the UI headlessly to a PNG and exit (used for testing) |
+| `-theme T`  | `auto` (OS default), `light` or `dark`                              |
+| `-musicroot P` | Override the music root folder (same as the top-bar field)       |
+| `-snapshot png` | Render one frame of the UI headlessly to a PNG and exit (used for testing and for `make docs`) |
+| `-gendemo path` | Create a demo database with fictitious tracks at `path` and exit (used by `make docs`; also writes small MP3 files next to it) |
 
 ## CLI
 
@@ -68,7 +138,7 @@ Useful flags:
 | Flag        | Default | Description                                                                 |
 |-------------|---------|-----------------------------------------------------------------------------|
 | `-db`       | `m.db`  | Path to the Engine DJ database                                              |
-| `-filter`   | *(empty)* | Case-insensitive substring matched against `title`, `artist`, `album` and `filename`. Empty = all tracks. |
+| `-filter`   | *(empty)* | Case-insensitive substring matched against `title`, `artist`, `album`, `filename` and `comment` (so `#tags` are searchable). Empty = all tracks. |
 | `-fix`      | off     | Reorder cues/loops and apply standard slot colors (see semantics below)     |
 | `-dry-run`  | off     | With `-fix`: show exactly what would change without writing to the DB       |
 
@@ -101,14 +171,16 @@ Per track, applied independently to cues and loops (only set slots participate):
 
 1. **Reorder** — set items are sorted chronologically and fill slots
    `1, 2, 3, …`; the **latest** item is always placed in **slot 8** (so with
-   5 set items you get slots `1, 2, 3, 4, 8`).
+   5 set items you get slots `1, 2, 3, 4, 8`). A **single** set item is the
+   exception: it goes to **slot 1** — it keeps a custom name or becomes
+   `Cue 1`/`Loop 1` (never `intro`).
 2. **Colors** — every set item gets the standard slot color (see table below),
    alpha 255. Empty slots keep no color.
-3. **Labels** — slot 1 is always named `intro`, slot 8 always `outro`
-   (position-bound, overriding anything else). In middle slots, default labels
-   (`Cue 3`, `Loop 2`) are renamed to match the new slot, and `intro`/`outro`
-   labels that drift into a middle slot are normalized back to `Cue N` /
-   `Loop N`. Genuinely custom labels (`Breakdown`, …) are preserved.
+3. **Labels** — with multiple items, slot 1 is always named `intro` and slot 8
+   always `outro` (position-bound, overriding anything else). In middle slots,
+   default labels (`Cue 3`, `Loop 2`) are renamed to match the new slot, and
+   `intro`/`outro` labels that drift into a middle slot are normalized back to
+   `Cue N` / `Loop N`. Genuinely custom labels (`Breakdown`, …) are preserved.
 4. **`activeOnLoadLoops`** — this column is treated as a slot bitmask
    (bit *i* = slot *i+1*); when loops move, the bits are remapped accordingly.
    Values outside a byte range are left untouched.
@@ -140,13 +212,16 @@ The code is split so new tools are easy to add:
 
 | File           | Responsibility                                                                 |
 |----------------|--------------------------------------------------------------------------------|
+| `db/`          | **sqlc-generated data access**: `schema.sql` + `queries.sql` are the source of truth — run `make sqlc` (or `sqlc generate`) after editing them; never edit `models.go`/`queries.sql.go` by hand |
 | `perfdata.go`  | Engine DJ v5 blob parsing/serialization (`quickCues`, `loops`, `trackData`) and the cue/loop fix computation |
 | `library.go`   | Database access (`Library`, `TrackRecord`), path resolution, fix persistence, DB metadata sync |
 | `mp3tags.go`   | ID3v2 read/write (`MediaTags`) via [bogem/id3v2/v2](https://pkg.go.dev/github.com/bogem/id3v2/v2) |
+| `artwork.go`   | Cover-art download from MusicBrainz / Cover Art Archive / Discogs |
 | `main.go`      | CLI entry: display mode and fix mode (same code paths as the GUI)               |
 | `ui.go`        | shirei app shell: top bar, sidebar, shared track browser, **tool registry**      |
 | `ui_cues.go`   | The *Cues & Loops* tool                                                          |
 | `ui_tags.go`   | The *MP3 Tags* tool                                                              |
+| `ui_config.go` | The *Settings* tool (config.yaml editor)                                         |
 
 To add a tool, implement the `AppTool` interface (`Name`, `Icon`, `View(a *App)`)
 in a new file and register it:
@@ -233,8 +308,62 @@ driver is pure Go ([modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite))
 and shirei uses purego for its macOS/Windows backends.
 
 ```sh
-go build -o enginedj5multitool .
+make build        # current platform -> ./enginedj5multitool
+make check        # gofmt check + go vet + tests
+make docs         # regenerate the README screenshots in docs/ (demo data)
+make macapp       # build "Engine DJ Multi Tool.app" (with icon) for macOS
+make release      # cross-compile + package all platforms into dist/
+make clean
 ```
+
+`make release` produces, for `darwin/amd64`, `darwin/arm64`, `linux/amd64`,
+`linux/arm64` and `windows/amd64`, an archive named
+`enginedj5multitool-<version>-<os>-<arch>.tar.gz` (`.zip` for Windows)
+containing the binary and this README. For both darwin architectures it
+additionally builds a signed `.app` bundle, zipped as
+`enginedj5multitool-<version>-<os>-<arch>.app.zip`. The version is injected
+from `git describe` (override with `make release VERSION=v1.2.3`).
+
+The macOS app icon (skull-and-crossbones on black) is generated
+programmatically by `cmd/genicon` (`make icon` writes `assets/icon.png` and
+`assets/icon.icns`); `make macapp` and `make release` regenerate it
+automatically.
+
+## Configuration
+
+On first run the app creates `config.yaml` in the per-OS user config
+directory (`~/Library/Application Support/enginedj5multitool/` on macOS,
+`~/.config/enginedj5multitool/` on Linux, `%AppData%\enginedj5multitool` on
+Windows — override with the `ENGINDJ5_CONFIG_DIR` env var):
+
+```yaml
+library: m.db            # default Engine DJ database path
+music_root: ""           # optional root used to resolve relative track paths
+engine_library: ""       # Engine Library folder (path resolution root)
+theme: auto              # auto | light | dark
+tool: 0                  # tool tab opened at startup
+browser_width: 560       # track list width
+discogs_token: ""        # personal access token for artwork search
+window_width: 0          # main window width (saved on quit; 0 = default)
+window_height: 0         # main window height (saved on quit; 0 = default)
+```
+
+Command-line flags override the file's values. The file is edited via the
+**Settings** tool in the sidebar: edit the values and press *Save to
+config.yaml* — they are applied to the running session and written to disk
+(*Reload from file* re-reads it). Changes made elsewhere in the UI (theme
+selector, splitter, library path, tag edits) are session-only and never
+written to the config file — with one exception: the **window size** is saved
+back to the config when the app quits.
+
+## CI / Releases
+
+- **CI** (`.github/workflows/ci.yml`): on every push to `main` and every PR —
+  tests run on Ubuntu, macOS and Windows runners; gofmt is checked; all
+  platforms are cross-compiled and uploaded as artifacts.
+- **Release** (`.github/workflows/release.yml`): pushing a tag `v*` builds all
+  platforms and creates a GitHub release with the archives. It can also be
+  triggered manually via *workflow_dispatch* (artifacts only).
 
 ## Development
 
