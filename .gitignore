@@ -9,3 +9,8 @@ m.db
 
 # go
 *.test
+
+# generated app icon + mac bundle
+assets/icon.png
+assets/icon.icns
+*.app

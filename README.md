@@ -37,7 +37,7 @@ the list scroll follow along):
   inline (per-slot `slot N ← M` changes); `Fix selected track` and
   `Fix all filtered (N)` apply it (writes only happen when dry run is off).
 - **MP3 Tags** — shows the embedded cover art above the form and loads the
-  ID3v2 tags of the selected MP3 from disk into an editable form (title,
+  tags of the selected MP3 or M4A file from disk into an editable form (title,
   artist, album, album artist, genre, year, track #, disc #, composer, BPM,
   comment). The **5-star rating** above the form is stored in the Engine DJ
   database (click a star to set it, click the single filled star again to
@@ -292,6 +292,7 @@ and shirei uses purego for its macOS/Windows backends.
 ```sh
 make build        # current platform -> ./enginedj5multitool
 make check        # gofmt check + go vet + tests
+make macapp       # build "Engine DJ Multi Tool.app" (with icon) for macOS
 make release      # cross-compile + package all platforms into dist/
 make clean
 ```
@@ -299,8 +300,15 @@ make clean
 `make release` produces, for `darwin/amd64`, `darwin/arm64`, `linux/amd64`,
 `linux/arm64` and `windows/amd64`, an archive named
 `enginedj5multitool-<version>-<os>-<arch>.tar.gz` (`.zip` for Windows)
-containing the binary and this README. The version is injected from
-`git describe` (override with `make release VERSION=v1.2.3`).
+containing the binary and this README. For both darwin architectures it
+additionally builds a signed `.app` bundle, zipped as
+`enginedj5multitool-<version>-<os>-<arch>.app.zip`. The version is injected
+from `git describe` (override with `make release VERSION=v1.2.3`).
+
+The macOS app icon (skull-and-crossbones on black) is generated
+programmatically by `cmd/genicon` (`make icon` writes `assets/icon.png` and
+`assets/icon.icns`); `make macapp` and `make release` regenerate it
+automatically.
 
 ## Configuration
 

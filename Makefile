@@ -1,6 +1,7 @@
 BINARY_NAME := enginedj5multitool
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.appVersion=$(VERSION)
+APP_NAME := Engine DJ Multi Tool
 
 # Cross-compile targets (CGO is not needed for any of them).
 PLATFORMS := darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64
@@ -8,7 +9,7 @@ DIST_DIR := dist
 
 .DEFAULT_GOAL := help
 
-.PHONY: help build test vet fmt fmtcheck check release clean snapshot
+.PHONY: help build test vet fmt fmtcheck check snapshot icon macapp release clean snapshot
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -36,6 +37,19 @@ check: fmtcheck vet test ## Everything CI runs: fmt check, vet, tests
 snapshot: ## Render one headless UI frame to /tmp/ui.png
 	go run . -db m.db -snapshot /tmp/ui.png
 
+icon: ## Generate assets/icon.png + assets/icon.icns (skull-and-crossbones)
+	go run ./cmd/genicon -png assets/icon.png -icns assets/icon.icns
+
+macapp: ## Build "Engine DJ Multi Tool.app" for the current macOS arch
+	@$(MAKE) icon
+	@rm -rf "$(APP_NAME).app"
+	@mkdir -p "$(APP_NAME).app/Contents/MacOS" "$(APP_NAME).app/Contents/Resources"
+	CGO_ENABLED=0 go build -trimpath -ldflags '$(LDFLAGS)' -o "$(APP_NAME).app/Contents/MacOS/$(BINARY_NAME)" .
+	sed 's/@VERSION@/$(VERSION)/' assets/Info.plist.in > "$(APP_NAME).app/Contents/Info.plist"
+	cp assets/icon.icns "$(APP_NAME).app/Contents/Resources/icon.icns"
+	-codesign --force -s - "$(APP_NAME).app" >/dev/null 2>&1 || true
+	@echo "== built $(APP_NAME).app ($(VERSION))"
+
 release: ## Cross-compile and package all platforms into dist/
 	@mkdir -p $(DIST_DIR)
 	@set -e; for p in $(PLATFORMS); do \
@@ -55,8 +69,20 @@ release: ## Cross-compile and package all platforms into dist/
 			tar -czf "$(DIST_DIR)/$$staged.tar.gz" -C "$(DIST_DIR)" "$$staged"; \
 		fi; \
 		rm -rf "$(DIST_DIR)/$$staged" "$(DIST_DIR)/$$bin"; \
+		if [ "$$os" = "darwin" ]; then \
+			echo "== building $(APP_NAME).app ($$arch)"; \
+			$(MAKE) --no-print-directory icon; \
+			appdir="$(DIST_DIR)/$(APP_NAME).app"; \
+			rm -rf "$$appdir"; \
+			mkdir -p "$$appdir/Contents/MacOS" "$$appdir/Contents/Resources"; \
+			CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -trimpath -ldflags '$(LDFLAGS)' -o "$$appdir/Contents/MacOS/$(BINARY_NAME)" .; \
+			sed 's/@VERSION@/$(VERSION)/' assets/Info.plist.in > "$$appdir/Contents/Info.plist"; \
+			cp assets/icon.icns "$$appdir/Contents/Resources/icon.icns"; \
+			(cd "$(DIST_DIR)" && zip -qry "$(BINARY_NAME)-$(VERSION)-$${os}-$${arch}.app.zip" "$(APP_NAME).app"); \
+			rm -rf "$$appdir"; \
+		fi; \
 	done
 	@echo "== artifacts:"; ls -la $(DIST_DIR)
 
 clean: ## Remove build outputs
-	rm -rf $(DIST_DIR) $(BINARY_NAME) $(BINARY_NAME).exe
+	rm -rf $(DIST_DIR) $(BINARY_NAME) $(BINARY_NAME).exe "$(APP_NAME).app"

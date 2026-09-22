@@ -78,16 +78,46 @@ func setTextFrame(tag *id3v2.Tag, id, text string) {
 	tag.AddTextFrame(id, frameEncoding(tag, text), text)
 }
 
+// audioKind classifies a file for tag editing.
+type audioKind int
+
+const (
+	kindOther audioKind = iota
+	kindMP3
+	kindM4A
+)
+
+func audioKindOf(path string) audioKind {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".mp3":
+		return kindMP3
+	case ".m4a", ".mp4", ".aac":
+		return kindM4A
+	}
+	return kindOther
+}
+
 // ReadMediaTags reads the editable tags from an MP3 file. Files without an
 // ID3v2 tag yield zero values (not an error).
 func ReadMediaTags(path string) (MediaTags, error) {
+	tags, _, err := ReadMediaTagsWithArt(path)
+	return tags, err
+}
+
+// ReadMediaTagsWithArt reads the editable tags and embedded artwork.
+// Files without tags yield zero values (not an error).
+func ReadMediaTagsWithArt(path string) (MediaTags, *MediaArt, error) {
+	if audioKindOf(path) == kindM4A {
+		return readM4ATags(path)
+	}
 	var t MediaTags
+	var art *MediaArt
 	tag, err := id3v2.Open(path, id3v2.Options{Parse: true})
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return t, err
+			return t, nil, err
 		}
-		return t, nil // no/undecodable ID3v2 tag: treat as empty
+		return t, nil, nil // no/undecodable ID3v2 tag: treat as empty
 	}
 	defer tag.Close()
 
@@ -107,7 +137,22 @@ func ReadMediaTags(path string) (MediaTags, error) {
 	if cf, ok := commentFrame(tag); ok {
 		t.Comment = cf.Text
 	}
-	return t, nil
+	// Embedded artwork (prefer the front cover).
+	for _, f := range tag.GetFrames(frPicture) {
+		if pf, ok := f.(id3v2.PictureFrame); ok && len(pf.Picture) > 0 {
+			mime := sniffImageMIME(pf.Picture, pf.MimeType)
+			if mime == "" {
+				mime = pf.MimeType
+			}
+			if pf.PictureType == 3 {
+				return t, &MediaArt{MIME: mime, Data: pf.Picture}, nil
+			}
+			if art == nil {
+				art = &MediaArt{MIME: mime, Data: pf.Picture}
+			}
+		}
+	}
+	return t, art, nil
 }
 
 func commentFrame(tag *id3v2.Tag) (id3v2.CommentFrame, bool) {
@@ -156,6 +201,10 @@ type MediaArt struct {
 // ReadEmbeddedArt returns the artwork embedded in an MP3 file, preferring the
 // front cover (APIC picture type 3). Returns nil when the file has none.
 func ReadEmbeddedArt(path string) (*MediaArt, error) {
+	if audioKindOf(path) == kindM4A {
+		_, art, err := readM4ATags(path)
+		return art, err
+	}
 	tag, err := id3v2.Open(path, id3v2.Options{Parse: true})
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -246,6 +295,9 @@ func SaveMediaTagsFull(path string, t MediaTags, art *MediaArt, rating *int64) e
 }
 
 func saveMediaTags(path string, t MediaTags, art *MediaArt, rating *int64) error {
+	if audioKindOf(path) == kindM4A {
+		return saveM4ATags(path, t, art)
+	}
 	tag, err := id3v2.Open(path, id3v2.Options{Parse: true})
 	if err == nil {
 		applyMediaTags(tag, t)
@@ -435,4 +487,12 @@ func isID3Header(data []byte) bool {
 func IsMP3(rec TrackRecord) bool {
 	return strings.EqualFold(strings.TrimSpace(rec.FileType), "mp3") ||
 		strings.HasSuffix(strings.ToLower(rec.Path), ".mp3")
+}
+
+// IsTaggable reports whether the track's file type is supported by the tag
+// editor (MP3/ID3v2 and M4A/MP4).
+func IsTaggable(rec TrackRecord) bool {
+	return IsMP3(rec) || audioKindOf(rec.Path) == kindM4A ||
+		strings.EqualFold(strings.TrimSpace(rec.FileType), "m4a") ||
+		strings.EqualFold(strings.TrimSpace(rec.FileType), "mp4")
 }

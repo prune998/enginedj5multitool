@@ -74,7 +74,7 @@ func (t *GlobalTool) View(a *App) {
 func (t *GlobalTool) Apply(a *App) (changed, unchanged, failed, skipped int) {
 	rep := &globalReport{dryRun: t.dryRun}
 	for _, rec := range a.Tracks {
-		if !IsMP3(rec) {
+		if !IsTaggable(rec) {
 			skipped++
 			continue
 		}
@@ -173,7 +173,7 @@ func (t *GlobalTool) ReportPanel(a *App) {
 	if rep.dryRun {
 		verb = "would update"
 	}
-	a.L(fmt.Sprintf("%d track(s) %s, %d already clean, %d failed, %d skipped (non-MP3).",
+	a.L(fmt.Sprintf("%d track(s) %s, %d already clean, %d failed, %d skipped (unsupported file type).",
 		rep.changed, verb, rep.unchanged, rep.failed, rep.skipped),
 		FontSize(a.fs(12)), TextColorVec(p.textDim))
 	a.reportLines(rep.lines, a.paneTextWidth())

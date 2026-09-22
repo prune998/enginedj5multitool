@@ -112,8 +112,8 @@ func (t *TagsTool) EditorPanel(a *App) {
 		a.errorText("Error: "+t.readErr, a.paneTextWidth())
 		return
 	}
-	if !IsMP3(rec) {
-		a.L("Not an MP3 file — tag editing supports MP3 (ID3v2) only.",
+	if !IsTaggable(rec) {
+		a.L("Unsupported file type — tag editing supports MP3 (ID3v2) and M4A (MP4) files.",
 			TextColor(40, 70, 40, 1))
 		return
 	}
@@ -141,8 +141,9 @@ func (t *TagsTool) RatingRow(a *App, rec TrackRecord) {
 				Toast(SymFail, "Rating write failed", err.Error())
 				return
 			}
-			// Mirror the rating into the file's POPM frame.
-			if t.pathErr == "" {
+			// Mirror the rating into the file's POPM frame (MP3 only —
+			// M4A ratings live in the Engine DJ database).
+			if t.pathErr == "" && IsMP3(rec) {
 				if err := WriteRatingPOPM(t.path, rating); err != nil {
 					Toast(SymFail, "POPM write failed", err.Error())
 				}

@@ -593,8 +593,9 @@ func runUI(lc LoadedConfig, snapshotPath string, filter string) {
 	}
 	if snapshotPath == "" {
 		a.cfgPath = lc.Path
-		// Save the window size on exit — the only main-UI value written back
-		// to the config file (and never when the file was malformed).
+		// Save the window size and the splitter position on exit — the only
+		// main-UI values written back to the config file (and never when the
+		// file was malformed).
 		generic.AddExitCleanup(func() { a.saveWindowDims() })
 		app.SetupWindow("Engine DJ Multi Tool", a.startupWindowWidth(), a.startupWindowHeight())
 		app.Run(a.RootView)
@@ -628,9 +629,10 @@ func (a *App) startupWindowHeight() int {
 	return 740
 }
 
-// saveWindowDims persists the window size on quit — the only main-UI value
-// written back to the config file. The file is re-read first so manual edits
-// survive, and a malformed file is never clobbered.
+// saveWindowDims persists the window size and the browser splitter position
+// on quit — the only main-UI values written back to the config file. The
+// file is re-read first so manual edits survive, and a malformed file is
+// never clobbered.
 func (a *App) saveWindowDims() {
 	lc := LoadOrCreateConfig()
 	if lc.Err != nil {
@@ -639,7 +641,10 @@ func (a *App) saveWindowDims() {
 	ws := GetHost().WindowSize
 	lc.WindowWidth = float64(ws[0])
 	lc.WindowHeight = float64(ws[1])
+	if w := a.splitWidth(); w >= minBrowserWidth {
+		lc.BrowserWidth = w
+	}
 	if err := SaveConfigFile(lc.Path, lc.Config); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: could not save window size: %v\n", err)
+		fmt.Fprintf(os.Stderr, "warning: could not save window size and splitter position: %v\n", err)
 	}
 }
