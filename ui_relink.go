@@ -97,12 +97,12 @@ func (t *RelinkTool) View(a *App) {
 		a.Splitter()
 
 		Container(Attrs(Grow(1), Expand, Viewport, Pad2(0, 10), Gap(8)), func() {
-			a.L("Relink", FontSize(18), FontWeight(WeightBold))
+			a.L("Relink", FontSize(a.fs(18)), FontWeight(WeightBold))
 			a.wrappedText("Scans the library for tracks whose audio file has gone missing, then searches the root folder below for the moved file — matching on file name, artist, album, title and file size — and points the database at the new location.",
-				a.paneTextWidth(), FontSize(11), TextColorVec(p.textDim))
+				a.paneTextWidth(), FontSize(a.fs(11)), TextColorVec(p.textDim))
 
 			Container(Attrs(Gap(2), Pad2(8, 0)), func() {
-				a.L("Root folder to search", FontSize(11), TextColorVec(p.textDim))
+				a.L("Root folder to search", FontSize(a.fs(11)), TextColorVec(p.textDim))
 				if !t.prefilled {
 					t.prefilled = true
 					if strings.TrimSpace(t.root) == "" {
@@ -133,7 +133,7 @@ func (t *RelinkTool) View(a *App) {
 					Container(Attrs(Row, CrossMid, Gap(6)), func() {
 						BusyDots()
 						a.L(fmt.Sprintf("%s — %d/%d", t.phase, t.done, t.total),
-							FontSize(12), TextColorVec(p.textDim))
+							FontSize(a.fs(12)), TextColorVec(p.textDim))
 					})
 				}
 			})
@@ -465,7 +465,7 @@ func (t *RelinkTool) relinkSync(a *App, missing []missingTrack) *relinkReport {
 			})
 			continue
 		}
-		if err := a.lib.SetTrackPath(m.rec.ID, m.propose.path); err != nil {
+		if err := a.lib.SetTrackPath(m.rec.ID, canonicalPath(m.propose.path)); err != nil {
 			rep.failed++
 			rep.lines = append(rep.lines, reportLine{
 				text:  fmt.Sprintf("#%d: DB update failed: %v", m.rec.ID, err),
@@ -495,10 +495,10 @@ func (t *RelinkTool) ReportPanel(a *App) {
 
 	if !t.report.scan {
 		rep := t.report
-		a.L("Last run", FontWeight(WeightBold), FontSize(14))
+		a.L("Last run", FontWeight(WeightBold), FontSize(a.fs(14)))
 		a.L(fmt.Sprintf("%d track(s) checked: %d missing, %d relinked, %d skipped (not selected), %d failed.",
 			rep.total, rep.missing, rep.relinked, rep.skipped, rep.failed),
-			FontSize(12), TextColorVec(p.textDim))
+			FontSize(a.fs(12)), TextColorVec(p.textDim))
 		a.reportLines(rep.lines, w)
 		return
 	}
@@ -508,19 +508,19 @@ func (t *RelinkTool) ReportPanel(a *App) {
 		return
 	}
 	rep := t.report
-	a.L("Missing files", FontWeight(WeightBold), FontSize(14))
+	a.L("Missing files", FontWeight(WeightBold), FontSize(a.fs(14)))
 	a.L(fmt.Sprintf("%d track(s) checked: %d found, %d missing. Proposals: %d relinkable, %d ambiguous, %d without match.",
 		rep.total, rep.found, rep.missing, rep.proposed, rep.ambiguous, rep.noMatch),
-		FontSize(12), TextColorVec(p.textDim))
+		FontSize(a.fs(12)), TextColorVec(p.textDim))
 	a.L("Check the proposals to keep, then press Relink selected — or Relink all. No-match tracks can be checked for deletion from the Engine DJ database.",
-		FontSize(11), TextColorVec(p.textDim))
+		FontSize(a.fs(11)), TextColorVec(p.textDim))
 
 	missingShown := 0
 	for i := range t.missingList {
 		m := &t.missingList[i]
 		if missingShown >= 10 {
 			a.L(fmt.Sprintf("… and %d more missing track(s)", rep.missing-missingShown),
-				FontSize(12), TextColorVec(p.textDim))
+				FontSize(a.fs(12)), TextColorVec(p.textDim))
 			break
 		}
 		missingShown++
@@ -533,11 +533,11 @@ func (t *RelinkTool) ReportPanel(a *App) {
 					CheckBox(&m.proposeDelete, "")
 				}
 				a.L(fmt.Sprintf("#%d %s — %s", m.rec.ID, m.rec.Artist, m.rec.Title),
-					FontSize(12), FontWeight(WeightBold), TextColorVec(p.textError))
+					FontSize(a.fs(12)), FontWeight(WeightBold), TextColorVec(p.textError))
 			})
 			a.errorText("    missing: "+m.old, w)
 			if m.propose != nil {
-				a.wrappedText("    proposal: "+m.propose.path, w, FontSize(12), TextColorVec(p.textOk))
+				a.wrappedText("    proposal: "+m.propose.path, w, FontSize(a.fs(12)), TextColorVec(p.textOk))
 			} else if m.ambiguous {
 				a.errorText("    multiple equally good matches — skipped", w)
 			} else {

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -61,6 +62,9 @@ type App struct {
 	Tools      []AppTool
 
 	Theme string // "auto" (OS default), "light" or "dark"
+
+	FontFamily string // UI font family (empty = shirei default)
+	FontSize   int    // UI font size in px (0 = shirei default 12)
 
 	// Track browser: threaded sort state (header clicks) and scroll offset
 	// (wheel writes it back; arrow navigation writes it to follow the
@@ -140,10 +144,22 @@ func (a *App) Refresh() {
 // and the active tool's panel.
 func (a *App) RootView() {
 	a.handleGlobalKeys()
+	// Re-apply per frame: a fresh UI (headless snapshots) resets the host.
+	if a.FontSize > 0 {
+		GetHost().ComfortScale = float32(a.FontSize) / 12
+	}
 	p := a.pal()
-	// The root text ink cascades to every shirei-internal label (checkbox
-	// labels, table headers...) so dark mode never shows dark text.
-	Container(Attrs(Viewport, BackgroundVec(p.bgRoot), AmendTextStyle(TextColorVec(p.text))), func() {
+	// The root text style cascades to every shirei-internal label (checkbox
+	// labels, table headers...) so dark mode never shows dark text and the
+	// configured font family/size apply everywhere.
+	rootMods := []TextStyleFn{TextColorVec(p.text)}
+	if a.FontFamily != "" {
+		rootMods = append(rootMods, Fonts(a.FontFamily))
+	}
+	if a.FontSize > 0 {
+		rootMods = append(rootMods, FontSize(float32(a.FontSize)))
+	}
+	Container(Attrs(Viewport, BackgroundVec(p.bgRoot), AmendTextStyle(rootMods...)), func() {
 		a.TopBar()
 		Container(Attrs(Row, Grow(1), Expand), func() {
 			a.Sidebar()
@@ -259,7 +275,7 @@ func (a *App) quit() {
 func (a *App) TopBar() {
 	p := a.pal()
 	Container(Attrs(Row, CrossMid, Pad2(8, 10), Gap(10), BackgroundVec(p.bgTop)), func() {
-		Label("Engine DJ Multi Tool", FontWeight(WeightBold), FontSize(16), TextColorVec(p.text))
+		Label("Engine DJ Multi Tool", FontWeight(WeightBold), FontSize(a.fs(16)), TextColorVec(p.text))
 		Spacer(8)
 
 		Label("Library", TextColorVec(p.textDim))
@@ -320,7 +336,7 @@ func (a *App) Sidebar() {
 			})
 		}
 		Spacer(6)
-		a.L("Tools are pluggable —\nsee RegisterTool().", FontSize(11), TextColorVec(p.textDim))
+		a.L("Tools are pluggable —\nsee RegisterTool().", FontSize(a.fs(11)), TextColorVec(p.textDim))
 	})
 }
 
@@ -397,6 +413,7 @@ func (a *App) Splitter() {
 // trackColumns builds the browser's columns; extra (optional) is appended by
 // tools that want an additional column (e.g. file type).
 func (a *App) trackColumns(extra *TableColumn[TrackRecord]) []TableColumn[TrackRecord] {
+	p := a.pal()
 	columns := []TableColumn[TrackRecord]{
 		{
 			Label: "ID", Width: 60,
@@ -427,6 +444,11 @@ func (a *App) trackColumns(extra *TableColumn[TrackRecord]) []TableColumn[TrackR
 			Label: "Length", Width: 70,
 			Cell: func(r TrackRecord) { a.L(formatDuration(r.Length)) },
 			Less: func(a, b TrackRecord) bool { return a.Length < b.Length },
+		},
+		{
+			Label: "File", Width: 260,
+			Cell: func(r TrackRecord) { a.L(filepath.Base(r.Path), FontSize(a.fs(11)), TextColorVec(p.textDim)) },
+			Less: func(a, b TrackRecord) bool { return strings.ToLower(a.Path) < strings.ToLower(b.Path) },
 		},
 	}
 	if extra != nil {
@@ -462,9 +484,9 @@ func (a *App) stars(rating int64, size float32, onClick func(star int)) {
 					}
 				}
 				if on {
-					Icon(TypStar, FontSize(size), TextColor(45, 85, 52, 1))
+					Icon(TypStar, FontSize(a.fs(size)), TextColor(45, 85, 52, 1))
 				} else {
-					Icon(TypStarOutline, FontSize(size), TextColorVec(p.textDim))
+					Icon(TypStarOutline, FontSize(a.fs(size)), TextColorVec(p.textDim))
 				}
 			})
 		}
@@ -508,7 +530,7 @@ func (a *App) BrowserPanel(extra *TableColumn[TrackRecord]) {
 	Container(Attrs(Grow(1), Expand, Clip, AmendTextStyle(TextColor(0, 0, 12, 1))), func() {
 		a.tableH = GetResolvedHeight()
 		attrs := TableAttrs[TrackRecord]{
-			RowHeight:    26,
+			RowHeight:    a.fs(26),
 			SortState:    &a.SortState,
 			ScrollOffset: &a.listScroll,
 			OnRow:        a.browserRowHighlight,
@@ -550,7 +572,10 @@ func (a *App) browserRowHighlight(index int, r TrackRecord) {
 func runUI(lc LoadedConfig, snapshotPath string, filter string) {
 	a := NewApp(lc.Library)
 	a.MusicRoot = lc.MusicRoot
+	a.EngineLibrary = lc.EngineLibrary
 	a.Theme = lc.Theme
+	a.FontFamily = lc.FontFamily
+	a.FontSize = lc.FontSize
 	if lc.BrowserWidth > 0 {
 		a.splitW = lc.BrowserWidth
 	}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -92,6 +93,17 @@ func TestResolveMediaPath(t *testing.T) {
 	}
 	if got := ResolveMediaPath(dbDir, "", "", "../lib/song.mp3"); got != song {
 		t.Errorf("relative to dbDir: got %q, want %q", got, song)
+	}
+	// With an Engine Library folder configured, the stored path resolves
+	// against IT (../ chains climb out of the Engine Library folder).
+	eng := filepath.Join(root, "Engine Library")
+	if err := os.MkdirAll(eng, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	depth := len(strings.Split(filepath.Clean(eng), "/")) - 1
+	engRel := strings.Repeat("../", depth) + strings.TrimPrefix(song, "/")
+	if got := ResolveMediaPath(dbDir, "", eng, engRel); got != song {
+		t.Errorf("engine-relative climb: got %q, want %q", got, song)
 	}
 
 	// musicRoot override wins when the file exists there.

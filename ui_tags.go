@@ -48,7 +48,7 @@ func (t *TagsTool) View(a *App) {
 		Container(Attrs(FixWidth(a.splitWidth()), Expand, Clip, Gap(8)), func() {
 			extra := &TableColumn[TrackRecord]{
 				Label: "Type", Width: 60,
-				Cell: func(r TrackRecord) { a.L(upper(r.FileType), FontSize(12)) },
+				Cell: func(r TrackRecord) { a.L(upper(r.FileType), FontSize(a.fs(12))) },
 				Less: func(a, b TrackRecord) bool { return a.FileType < b.FileType },
 			}
 			a.BrowserPanel(extra)
@@ -74,7 +74,7 @@ func upper(s string) string {
 }
 
 func (t *TagsTool) EditorPanel(a *App) {
-	a.L("MP3 Tags", FontSize(18), FontWeight(WeightBold))
+	a.L("MP3 Tags", FontSize(a.fs(18)), FontWeight(WeightBold))
 
 	rec, ok := a.SelectedTrack()
 	if !ok || a.Selected == 0 {
@@ -86,13 +86,13 @@ func (t *TagsTool) EditorPanel(a *App) {
 	// File info
 	Container(Attrs(Gap(2), Pad2(4, 0)), func() {
 		Container(Attrs(Row, CrossMid, Gap(6)), func() {
-			Icon(SymAudio, FontSize(13), TextColorVec(a.pal().textDim))
+			Icon(SymAudio, FontSize(a.fs(13)), TextColorVec(a.pal().textDim))
 			a.L(fmt.Sprintf("#%d  %s — %s", rec.ID, rec.Artist, rec.Title), FontWeight(WeightBold))
 		})
 		if t.pathErr != "" {
 			a.errorText(t.pathErr, a.paneTextWidth())
 		} else {
-			a.L(t.path, FontSize(11), TextColorVec(a.pal().textDim))
+			a.L(t.path, FontSize(a.fs(11)), TextColorVec(a.pal().textDim))
 		}
 	})
 
@@ -119,7 +119,7 @@ func (t *TagsTool) EditorPanel(a *App) {
 func (t *TagsTool) RatingRow(a *App, rec TrackRecord) {
 	p := a.pal()
 	Container(Attrs(Row, CrossMid, Gap(10), Pad2(4, 0)), func() {
-		a.L("Rating", FontWeight(WeightBold), FontSize(14))
+		a.L("Rating", FontWeight(WeightBold), FontSize(a.fs(14)))
 		a.stars(rec.Rating, 20, func(star int) {
 			rating := int64(star * 20)
 			if star == 1 && rec.Rating == 20 {
@@ -144,7 +144,7 @@ func (t *TagsTool) RatingRow(a *App, rec TrackRecord) {
 			}
 		})
 		a.L(fmt.Sprintf("(%d/5 — stored in the Engine DJ database)", rec.Rating/20),
-			FontSize(11), TextColorVec(p.textDim))
+			FontSize(a.fs(11)), TextColorVec(p.textDim))
 	})
 }
 
@@ -167,13 +167,13 @@ func (t *TagsTool) ArtworkPanel(a *App, rec TrackRecord) {
 				}
 			}
 			Container(Attrs(Expand, Row, CrossMid), func() {
-				a.L("no artwork", FontSize(12), TextColorVec(p.textDim))
+				a.L("no artwork", FontSize(a.fs(12)), TextColorVec(p.textDim))
 			})
 		})
 
 		// Status + download controls.
 		Container(Attrs(Grow(1), Gap(6)), func() {
-			a.L("Artwork", FontWeight(WeightBold), FontSize(14))
+			a.L("Artwork", FontWeight(WeightBold), FontSize(a.fs(14)))
 
 			note := "No artwork embedded in this file."
 			if t.art != nil {
@@ -182,7 +182,7 @@ func (t *TagsTool) ArtworkPanel(a *App, rec TrackRecord) {
 			if t.pending != nil {
 				note = fmt.Sprintf("Downloaded from %s (%d KB) — embedded when you Save.", t.pendingSrc, len(t.pending.Data)/1024)
 			}
-			a.L(note, FontSize(11), TextColorVec(p.textDim))
+			a.L(note, FontSize(a.fs(11)), TextColorVec(p.textDim))
 
 			Container(Attrs(Row, CrossMid, Gap(8)), func() {
 				busy := t.artBusy != ""
@@ -197,13 +197,13 @@ func (t *TagsTool) ArtworkPanel(a *App, rec TrackRecord) {
 			if t.artBusy != "" {
 				Container(Attrs(Row, CrossMid, Gap(6)), func() {
 					BusyDots()
-					a.L("Searching "+t.artBusy+"…", FontSize(12), TextColorVec(p.textDim))
+					a.L("Searching "+t.artBusy+"…", FontSize(a.fs(12)), TextColorVec(p.textDim))
 				})
 			} else if t.artErr != "" {
 				a.errorText(t.artErr, a.paneTextWidth())
 			} else if t.discogsToken == "" {
 				a.L("Discogs downloads need a personal access token — set it in Settings.",
-					FontSize(11), TextColorVec(p.textDim))
+					FontSize(a.fs(11)), TextColorVec(p.textDim))
 			}
 		})
 	})
@@ -316,7 +316,7 @@ func (t *TagsTool) Form(a *App) {
 			a.captureFormRow()
 			genreW := a.genreFieldWidth(yearW + trackW + discW + bpmW)
 			Container(Attrs(FixWidth(genreW), Gap(2)), func() {
-				a.L("Genre", FontSize(11), TextColorVec(a.pal().textDim))
+				a.L("Genre", FontSize(a.fs(11)), TextColorVec(a.pal().textDim))
 				at := DefaultTextInputAttrs()
 				at.MinWidth = genreW
 				a.input(&t.tags.Genre, at)
@@ -327,7 +327,7 @@ func (t *TagsTool) Form(a *App) {
 			t.fixedField(a, "BPM", &t.tags.BPM, bpmW)
 		})
 		Container(Attrs(Expand, Gap(2)), func() {
-			a.L("Comment", FontSize(11), TextColorVec(a.pal().textDim))
+			a.L("Comment", FontSize(a.fs(11)), TextColorVec(a.pal().textDim))
 			a.textArea(&t.tags.Comment)
 		})
 	})
@@ -379,7 +379,7 @@ func dataWidth(chars int) float32 {
 // fieldFull renders a label + themed input spanning the full panel width.
 func (t *TagsTool) fieldFull(a *App, label string, buf *string) {
 	Container(Attrs(Expand, Gap(2)), func() {
-		a.L(label, FontSize(11), TextColorVec(a.pal().textDim))
+		a.L(label, FontSize(a.fs(11)), TextColorVec(a.pal().textDim))
 		a.input(buf, DefaultTextInputAttrs())
 	})
 }
@@ -389,7 +389,7 @@ func (t *TagsTool) fixedField(a *App, label string, buf *string, w float32) {
 	Container(Attrs(FixWidth(w), Gap(2)), func() {
 		NextAccessName("field-" + sanitizeAccess(label))
 		AssignAccess()
-		a.L(label, FontSize(11), TextColorVec(a.pal().textDim))
+		a.L(label, FontSize(a.fs(11)), TextColorVec(a.pal().textDim))
 		at := DefaultTextInputAttrs()
 		at.MinWidth = w
 		a.input(buf, at)
@@ -459,7 +459,7 @@ func addTag(comment, name string) string {
 func (t *TagsTool) TagBubbles(a *App) {
 	tags := parseHashTags(t.tags.Comment)
 	p := a.pal()
-	a.L("Tags", FontSize(11), TextColorVec(p.textDim))
+	a.L("Tags", FontSize(a.fs(11)), TextColorVec(p.textDim))
 	Container(Attrs(Expand, Gap(6), Pad2(2, 0)), func() {
 		Container(Attrs(Row, Wrap, CrossMid, Gap(6)), func() {
 			for _, name := range tags {
@@ -473,8 +473,8 @@ func (t *TagsTool) TagBubbles(a *App) {
 					if PressAction() {
 						t.tags.Comment = removeTag(t.tags.Comment, n)
 					}
-					a.L("#"+n, FontSize(12), TextColorVec(p.bubbleInk))
-					a.L("×", FontSize(12), TextColorVec(p.bubbleInk))
+					a.L("#"+n, FontSize(a.fs(12)), TextColorVec(p.bubbleInk))
+					a.L("×", FontSize(a.fs(12)), TextColorVec(p.bubbleInk))
 				})
 			}
 			Container(Attrs(Grow(1), MinWidth(140), MaxWidth(220)), func() {
@@ -574,7 +574,7 @@ func (t *TagsTool) SaveRow(a *App, rec TrackRecord) {
 		}
 		CheckBox(&t.alsoDB, "Also update Engine DJ database")
 		if t.saved {
-			a.L("Saved ✓", TextColor(140, 45, 34, 1), FontSize(12))
+			a.L("Saved ✓", TextColor(140, 45, 34, 1), FontSize(a.fs(12)))
 		}
 	})
 }

@@ -21,6 +21,8 @@ type Config struct {
 	Theme         string  `yaml:"theme"`          // auto | light | dark
 	Tool          int     `yaml:"tool"`           // tool tab opened at startup
 	BrowserWidth  float32 `yaml:"browser_width"`  // track list width in points
+	FontFamily    string  `yaml:"font_family"`    // UI font family (empty = default)
+	FontSize      int     `yaml:"font_size"`      // UI font size in px (0 = default 12)
 	WindowWidth   float64 `yaml:"window_width"`   // main window width (saved on quit; 0 = default)
 	WindowHeight  float64 `yaml:"window_height"`  // main window height (saved on quit; 0 = default)
 	DiscogsToken  string  `yaml:"discogs_token"`  // personal access token for artwork search

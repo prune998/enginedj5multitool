@@ -21,6 +21,9 @@ func TestLoadOrCreateConfigCreatesDefaults(t *testing.T) {
 	if lc.Library != "m.db" || lc.Theme != "auto" || lc.Tool != 0 || lc.BrowserWidth != 560 {
 		t.Errorf("defaults = %+v", lc.Config)
 	}
+	if lc.FontFamily != "" || lc.FontSize != 0 {
+		t.Errorf("font defaults = %q/%d, want empty/0", lc.FontFamily, lc.FontSize)
+	}
 	data, err := os.ReadFile(filepath.Join(dir, "config.yaml"))
 	if err != nil {
 		t.Fatalf("default file not created: %v", err)
@@ -44,6 +47,8 @@ func TestConfigRoundTrip(t *testing.T) {
 	lc.Theme = "dark"
 	lc.Tool = 1
 	lc.BrowserWidth = 700
+	lc.FontFamily = "Courier New"
+	lc.FontSize = 18
 	lc.DiscogsToken = "tok-123"
 	if err := SaveConfigFile(lc.Path, lc.Config); err != nil {
 		t.Fatal(err)
@@ -55,6 +60,7 @@ func TestConfigRoundTrip(t *testing.T) {
 	}
 	if lc2.Library != "/music/Engine Library/m.db" || lc2.MusicRoot != "/music" ||
 		lc2.Theme != "dark" || lc2.Tool != 1 || lc2.BrowserWidth != 700 ||
+		lc2.FontFamily != "Courier New" || lc2.FontSize != 18 ||
 		lc2.DiscogsToken != "tok-123" {
 		t.Errorf("round trip mismatch: %+v", lc2.Config)
 	}

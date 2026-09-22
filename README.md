@@ -68,8 +68,9 @@ the list scroll follow along):
   file — matching on file name, artist, album, title and file size — then
   points `Track.path` at the new location. Ambiguous matches are reported
   instead of guessed.
-- **Settings** — edits `config.yaml` (library path, music root, Discogs
-  token, theme, browser width) with explicit Save/Reload.
+- **Settings** — edits `config.yaml` (library path, music root, Engine
+  Library folder, Discogs token, theme, browser width, font family and size)
+  with explicit Save/Reload.
 
 Other UI features:
 
@@ -83,11 +84,15 @@ Other UI features:
   comment (the convention for genre/scene tagging).
 - **⌘Q / Ctrl-Q** quits the app.
 
-Files are located via the path stored in the `Track` table: absolute paths,
-paths relative to the database directory, `../`-chains resolved against the
-DB location, the Engine Library folder (config/Settings, auto-detected at
-`~/Music/Engine Library` when it exists), or relative to the *music root*
-from the top bar.
+Files are located via the path stored in the `Track` table: per the Engine DJ
+spec, stored paths are **always relative to the Engine Library folder** — the
+`../` chains climb out of it toward the volume root (e.g.
+`../../../../Volumes/Macintosh HD/Users/prune/Music/…`). Resolution tries: the
+Engine Library folder (config/Settings, auto-detected at
+`~/Music/Engine Library` when it exists; falls back to the database
+directory), the *music root* from the top bar, and the root-anchored trimmed
+path. The macOS default volume alias (`/Volumes/Macintosh HD/…`) is mapped to
+the real path (`/Users/prune/Music/…`) and all tools display canonical paths.
 
 Useful flags:
 

@@ -137,20 +137,36 @@ func (l *Library) ResolveMedia(relPath string) string {
 	return ResolveMediaPath(l.Dir, l.MusicRoot, l.EngineLibrary, relPath)
 }
 
+// macVolumeAlias is the macOS default boot-volume alias: the system disk is
+// mounted at "/" and also exposed under /Volumes/<name>.
+const macVolumeAlias = "/Volumes/Macintosh HD"
+
+// canonicalPath maps macOS default-mountpoint aliases to the real path:
+// /Volumes/Macintosh HD/Users/... == /Users/...
+func canonicalPath(p string) string {
+	if rest, ok := strings.CutPrefix(p, macVolumeAlias+"/"); ok {
+		return "/" + rest
+	}
+	return p
+}
+
 // ResolveMediaPath turns the (often relative) path stored in the Track table
 // into a usable filesystem path. Engine DJ databases frequently store paths
 // with "../" chains relative to a volume root that no longer matches the DB
 // location, so several candidates are tried: the music root, the Engine
-// Library folder (e.g. /Users/me/Music/Engine Library), the DB directory and
-// a root-anchored form of the trimmed path.
+// Library folder (e.g. /Users/me/Music/Engine Library), the DB directory,
+// a root-anchored form of the trimmed path, and the same path with the
+// default macOS volume alias (/Volumes/Macintosh HD) mapped to "/".
+// Returned paths are canonical (volume aliases resolved to the real path).
 func ResolveMediaPath(dbDir, musicRoot, engineLib, relPath string) string {
 	if relPath == "" {
 		return ""
 	}
 	if filepath.IsAbs(relPath) {
-		return relPath
+		return canonicalPath(relPath)
 	}
-	// Normalize and strip leading dot-dot chains: ../../Volumes/Music/x.mp3 → Volumes/Music/x.mp3
+	// Normalize: strip "./" prefixes; keep the ".." chains — they climb out
+	// of the Engine Library folder by design.
 	norm := filepath.ToSlash(relPath)
 	for strings.HasPrefix(norm, "./") {
 		norm = norm[2:]
@@ -160,27 +176,36 @@ func ResolveMediaPath(dbDir, musicRoot, engineLib, relPath string) string {
 		trimmed = trimmed[3:]
 	}
 
+	// The Engine Library folder is the base for the stored path (the ".."
+	// chains resolve against it); the DB directory is only used as the base
+	// when no Engine Library folder is configured.
+	libRoot := engineLib
+	if libRoot == "" {
+		libRoot = dbDir
+	}
+
 	var candidates []string
+	if libRoot != "" {
+		candidates = append(candidates, filepath.Join(libRoot, norm))
+	}
 	if musicRoot != "" {
 		candidates = append(candidates, filepath.Join(musicRoot, trimmed))
 	}
-	if engineLib != "" {
-		candidates = append(candidates, filepath.Join(engineLib, trimmed))
+	// "/Volumes/Macintosh HD" is the default (/) mountpoint, so strip it:
+	// Volumes/Macintosh HD/Users/prune/Music/x.mp3 → /Users/prune/Music/x.mp3
+	if rest, ok := strings.CutPrefix(trimmed, strings.TrimPrefix(macVolumeAlias, "/")+"/"); ok {
+		candidates = append(candidates, "/"+rest)
 	}
-	candidates = append(candidates,
-		filepath.Join(dbDir, relPath),
-		string(filepath.Separator)+trimmed,
-	)
+	candidates = append(candidates, string(filepath.Separator)+trimmed)
+
 	for _, c := range candidates {
+		c = canonicalPath(c)
 		if st, err := os.Stat(c); err == nil && !st.IsDir() {
 			return c
 		}
 	}
 	// Nothing found: return the most plausible candidate for error reporting.
-	if musicRoot != "" {
-		return filepath.Join(musicRoot, trimmed)
-	}
-	return filepath.Join(dbDir, relPath)
+	return canonicalPath(filepath.Join(libRoot, norm))
 }
 
 // UpdateTrackMetadata syncs edited media tags back into the Track table so the

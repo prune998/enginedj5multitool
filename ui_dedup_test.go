@@ -8,6 +8,57 @@ import (
 	"testing"
 )
 
+func TestCanonicalPath(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"/Volumes/Macintosh HD/Users/prune/Music/x.mp3", "/Users/prune/Music/x.mp3"},
+		{"/Users/prune/Music/x.mp3", "/Users/prune/Music/x.mp3"},
+		{"/Volumes/OtherDisk/Music/x.mp3", "/Volumes/OtherDisk/Music/x.mp3"}, // non-default mounts kept
+	}
+	for _, tc := range cases {
+		if got := canonicalPath(tc.in); got != tc.want {
+			t.Errorf("canonicalPath(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// TestDedupGroupsVolumeAliasPath: one entry stores the file under the
+// /Volumes/Macintosh HD alias, the other under the real /Users/... path —
+// both must group as the same file.
+func TestDedupGroupsVolumeAliasPath(t *testing.T) {
+	dbPath := buildTestLibrary(t)
+	real := filepath.Join(t.TempDir(), "Song.mp3")
+	if err := os.WriteFile(real, bytes.Repeat([]byte{0xFF, 0xFB, 0x90, 0x00}, 256), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	alias := "/Volumes/Macintosh HD" + real
+	{
+		db, err := sql.Open("sqlite", dbPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer db.Close()
+		if _, err := db.Exec(`UPDATE Track SET path = ? WHERE id = 5`, alias); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`UPDATE Track SET path = ? WHERE id = 7`, real); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	a := NewApp(dbPath)
+	tool := a.Tools[4].(*DedupTool)
+	groups, _ := tool.scanSync(a)
+	if len(groups) != 1 {
+		t.Fatalf("groups = %d, want 1 (the two paths are the same file)", len(groups))
+	}
+	if len(groups[0].entries) != 2 {
+		t.Fatalf("group entries = %d, want 2", len(groups[0].entries))
+	}
+	if groups[0].path != real {
+		t.Errorf("group path = %q, want the canonical real path %q", groups[0].path, real)
+	}
+}
+
 // TestDedupFindsSameFile points two library entries at the same audio file
 // and verifies the Dedup tool groups them; deleting the checked extra entry
 // removes it from the DB and session.

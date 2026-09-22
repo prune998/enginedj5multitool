@@ -46,9 +46,9 @@ func (t *GlobalTool) View(a *App) {
 
 		// Right: global edit content, scrolling when taller than the pane.
 		Container(Attrs(Grow(1), Expand, Viewport, Pad2(0, 10), Gap(8)), func() {
-			a.L("Global Edit", FontSize(18), FontWeight(WeightBold))
+			a.L("Global Edit", FontSize(a.fs(18)), FontWeight(WeightBold))
 			a.L(fmt.Sprintf("Applies to the %d track(s) currently shown in the list (use the search box to narrow it down).",
-				a.TrackCount), FontSize(11), TextColorVec(a.pal().textDim))
+				a.TrackCount), FontSize(a.fs(11)), TextColorVec(a.pal().textDim))
 
 			Container(Attrs(Gap(6), Pad2(8, 0)), func() {
 				CheckBox(&t.sortTags, "Re-order the comment #tags alphabetically")
@@ -168,16 +168,16 @@ func (t *GlobalTool) ReportPanel(a *App) {
 	}
 	rep := t.lastRun
 	p := a.pal()
-	a.L("Last run", FontWeight(WeightBold), FontSize(14))
+	a.L("Last run", FontWeight(WeightBold), FontSize(a.fs(14)))
 	verb := "updated"
 	if rep.dryRun {
 		verb = "would update"
 	}
 	a.L(fmt.Sprintf("%d track(s) %s, %d already clean, %d failed, %d skipped (non-MP3).",
 		rep.changed, verb, rep.unchanged, rep.failed, rep.skipped),
-		FontSize(12), TextColorVec(p.textDim))
+		FontSize(a.fs(12)), TextColorVec(p.textDim))
 	a.reportLines(rep.lines, a.paneTextWidth())
 	if rep.dryRun && rep.changed > 0 {
-		a.L("Dry run — nothing written. Uncheck Dry run to apply.", FontSize(12), TextColorVec(p.textDim))
+		a.L("Dry run — nothing written. Uncheck Dry run to apply.", FontSize(a.fs(12)), TextColorVec(p.textDim))
 	}
 }

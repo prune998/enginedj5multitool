@@ -125,6 +125,15 @@ func (a *App) pal() palette {
 	return lightPalette
 }
 
+// fs scales a design font size by the user's font size setting
+// (config font_size / 12, the shirei default).
+func (a *App) fs(size float32) float32 {
+	if a.FontSize > 0 {
+		return size * float32(a.FontSize) / 12
+	}
+	return size
+}
+
 // L renders a themed label: the palette text color is applied first so
 // explicit TextColor mods passed by the caller override it.
 func (a *App) L(text string, mods ...TextStyleFn) {
@@ -158,7 +167,7 @@ func (a *App) wrappedText(text string, maxWidth float32, mods ...TextStyleFn) {
 // errorText renders an error message in the theme's error color, soft-wrapped
 // to the given max width.
 func (a *App) errorText(text string, maxWidth float32) {
-	a.wrappedText(text, maxWidth, FontSize(12), TextColorVec(a.pal().textError))
+	a.wrappedText(text, maxWidth, FontSize(a.fs(12)), TextColorVec(a.pal().textError))
 }
 
 // reportLines renders run-report lines, wrapping each to the pane width and
@@ -169,11 +178,11 @@ func (a *App) reportLines(lines []reportLine, maxWidth float32) {
 		case "err":
 			a.errorText(ln.text, maxWidth)
 		case "ok":
-			a.wrappedText(ln.text, maxWidth, FontSize(12), TextColorVec(a.pal().textOk))
+			a.wrappedText(ln.text, maxWidth, FontSize(a.fs(12)), TextColorVec(a.pal().textOk))
 		case "dim":
-			a.wrappedText(ln.text, maxWidth, FontSize(12), TextColorVec(a.pal().textDim))
+			a.wrappedText(ln.text, maxWidth, FontSize(a.fs(12)), TextColorVec(a.pal().textDim))
 		default:
-			a.wrappedText(ln.text, maxWidth, FontSize(12))
+			a.wrappedText(ln.text, maxWidth, FontSize(a.fs(12)))
 		}
 	}
 }
