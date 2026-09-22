@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
 	"testing"
 
 	id3v2 "github.com/bogem/id3v2/v2"
@@ -368,6 +369,62 @@ func TestPOPMReplacesOnlyOurFrame(t *testing.T) {
 	theirs := popmFor(t, p, "itunes@localhost")
 	if len(theirs) != 1 || theirs[0].Rating != 10 {
 		t.Fatalf("other tool's POPM = %+v, want preserved @ 10", theirs)
+	}
+}
+
+// TestSaveMediaTagsNonLatinV23 saves a v2.3 tag whose values contain runes
+// outside ISO-8859-1 (the failure was "encoding rune not supported by
+// encoding") and verifies the values round-trip.
+func TestSaveMediaTagsNonLatinV23(t *testing.T) {
+	p := mp3Fixture(t)
+
+	// Seed a v2.3 tag with UTF-16 frames containing non-Latin-1 text.
+	tag := id3v2.NewEmptyTag()
+	tag.SetVersion(3)
+	tag.SetDefaultEncoding(id3v2.EncodingUTF16)
+	tag.SetTitle("Музыка — Beyond")
+	tag.SetArtist("Кино")
+	tag.AddCommentFrame(id3v2.CommentFrame{
+		Encoding:    id3v2.EncodingUTF16,
+		Language:    "eng",
+		Description: "",
+		Text:        "→ тег #atag",
+	})
+	var tagBuf bytes.Buffer
+	if _, err := tag.WriteTo(&tagBuf); err != nil {
+		t.Fatal(err)
+	}
+	p = filepath.Join(filepath.Dir(p), "v23.mp3")
+	if err := os.WriteFile(p, tagBuf.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Global-Edit style save: text read from the file + a new comment.
+	in := MediaTags{Title: "Музыка — Beyond", Artist: "Кино", Comment: "→ тег #atag #cued"}
+	if err := SaveMediaTagsFull(p, in, nil, nil); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	got, err := ReadMediaTags(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Title != in.Title || got.Artist != in.Artist || got.Comment != in.Comment {
+		t.Errorf("round trip mismatch:\n got  %+v\n want %+v", got, in)
+	}
+
+	// The tag must still be v2.3 with UTF-16 frames (spec-valid).
+	tag2, err := id3v2.Open(p, id3v2.Options{Parse: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tag2.Close()
+	if tag2.Version() != 3 {
+		t.Errorf("version = %d, want 3", tag2.Version())
+	}
+	tf := tag2.GetTextFrame("TIT2")
+	if tf.Encoding.Equals(id3v2.EncodingISO) {
+		t.Error("v2.3 frame with non-Latin text must not use ISO-8859-1")
 	}
 }
 

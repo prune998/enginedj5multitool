@@ -55,12 +55,27 @@ func getTextFrame(tag *id3v2.Tag, id string) string {
 	return tag.GetTextFrame(id).Text
 }
 
+// frameEncoding picks an ID3 encoding that can represent text: the tag's
+// default when it fits, otherwise UTF-16 (v2.3) — UTF-8 is the v2.4 default
+// and always suffices there.
+func frameEncoding(tag *id3v2.Tag, text string) id3v2.Encoding {
+	def := tag.DefaultEncoding()
+	if def.Equals(id3v2.EncodingISO) {
+		for _, r := range text {
+			if r > 0xFF {
+				return id3v2.EncodingUTF16
+			}
+		}
+	}
+	return def
+}
+
 func setTextFrame(tag *id3v2.Tag, id, text string) {
 	if text == "" {
 		tag.DeleteFrames(id)
 		return
 	}
-	tag.AddTextFrame(id, tag.DefaultEncoding(), text)
+	tag.AddTextFrame(id, frameEncoding(tag, text), text)
 }
 
 // ReadMediaTags reads the editable tags from an MP3 file. Files without an
@@ -125,7 +140,7 @@ func setComment(tag *id3v2.Tag, text string) {
 		return
 	}
 	tag.AddCommentFrame(id3v2.CommentFrame{
-		Encoding:    tag.DefaultEncoding(),
+		Encoding:    frameEncoding(tag, text),
 		Language:    lang,
 		Description: desc,
 		Text:        text,

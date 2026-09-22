@@ -18,8 +18,9 @@ type TagsTool struct {
 	mp3Only bool
 	lastSel int64
 
-	path    string // resolved audio file path
-	pathErr string // file missing / not an mp3
+	path     string // resolved audio file path
+	pathText string // display copy of the path (selectable input)
+	pathErr  string // file missing / not an mp3
 
 	tags    MediaTags
 	art     *MediaArt // embedded artwork from the file
@@ -92,7 +93,18 @@ func (t *TagsTool) EditorPanel(a *App) {
 		if t.pathErr != "" {
 			a.errorText(t.pathErr, a.paneTextWidth())
 		} else {
-			a.L(t.path, FontSize(a.fs(11)), TextColorVec(a.pal().textDim))
+			// Selectable path: select with the mouse and Cmd-C, or use the
+			// Copy button. Re-bound each frame so edits never stick.
+			t.pathText = t.path
+			Container(Attrs(Row, CrossMid, Gap(8)), func() {
+				Container(Attrs(Grow(1)), func() {
+					a.input(&t.pathText, DefaultTextInputAttrs())
+				})
+				if CtrlButton(SymCopy, "Copy", true) {
+					RequestTextCopy(t.path)
+					Toast(SymITick, "Copied", "File path placed on the clipboard.")
+				}
+			})
 		}
 	})
 
