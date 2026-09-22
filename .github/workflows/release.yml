@@ -31,8 +31,56 @@ jobs:
         if: ${{ startsWith(github.ref, 'refs/tags/') }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
-            --title "$GITHUB_REF_NAME" \
+          gh release create "$REF_NAME" \
+            --title "$REF_NAME" \
             --generate-notes \
             dist/*
+
+  # The macOS .app bundles must be built and codesign-ed on a macOS runner:
+  # ad-hoc signing requires the codesign tool, and Gatekeeper reports
+  # unsigned bundles as "damaged" when the download is quarantined. The job
+  # needs the `release` job so the bundles can be uploaded to the freshly
+  # created release.
+  macos-app:
+    needs: release
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build and sign the .app bundles (arm64 + amd64)
+        run: |
+          set -e
+          make appzip ARCH=arm64
+          make appzip ARCH=amd64
+      - name: Verify the signatures
+        run: |
+          set -e
+          for z in dist/*.app.zip; do
+            rm -rf /tmp/verify && unzip -q "$z" -d /tmp/verify
+            codesign --verify --strict /tmp/verify/*.app
+          done
+          echo "== all bundle signatures verify"
+      - name: Upload .app artifacts (workflow dispatch)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-app
+          path: dist/*.app.zip
+      - name: Upload .app bundles to the GitHub release
+        if: ${{ startsWith(github.ref, 'refs/tags/') }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          for z in dist/*.app.zip; do
+            gh release upload "$REF_NAME" "$z" --clobber
+          done

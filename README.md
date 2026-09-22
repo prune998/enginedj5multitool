@@ -329,6 +329,24 @@ programmatically by `cmd/genicon` (`make icon` writes `assets/icon.png` and
 `assets/icon.icns`); `make macapp` and `make release` regenerate it
 automatically.
 
+#### Installing the macOS app
+
+The released `.app.zip` bundles are **ad-hoc signed** (proper Developer ID
+notarization requires a paid Apple Developer account), so Gatekeeper may
+complain on first launch after a download:
+
+- *"app is damaged and can't be opened"* — the download carries the
+  quarantine flag; clear it once and reopen:
+
+  ```sh
+  xattr -cr "Engine DJ Multi Tool.app"
+  ```
+
+- *"Apple could not verify…"* — right-click the app → **Open**, or open
+  **System Settings → Privacy & Security** and click **Open Anyway**.
+
+Both are one-time steps; the app then launches normally.
+
 ## Configuration
 
 On first run the app creates `config.yaml` in the per-OS user config

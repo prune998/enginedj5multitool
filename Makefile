@@ -9,7 +9,7 @@ DIST_DIR := dist
 
 .DEFAULT_GOAL := help
 
-.PHONY: help build test vet fmt fmtcheck check snapshot icon docs macapp release clean snapshot
+.PHONY: help build test vet fmt fmtcheck check snapshot icon docs macapp appbundle appzip release clean snapshot
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -53,15 +53,36 @@ docs: ## Regenerate the README screenshots in docs/ (fictitious demo data)
 	done
 	@echo "== screenshots written to docs/"
 
-macapp: ## Build "Engine DJ Multi Tool.app" for the current macOS arch
-	@$(MAKE) icon
+macapp: ## Build "Engine DJ Multi Tool.app" for ARCH (default: host arch)
+	@$(MAKE) appbundle ARCH=$(if $(ARCH),$(ARCH),$(shell uname -m | sed 's/x86_64/amd64/'))
+	@echo "If macOS calls the app damaged after a download, run:"; \
+	echo "  xattr -cr \"$(APP_NAME).app\""
+
+appbundle: ## Build + ad-hoc sign one .app bundle (ARCH=amd64|arm64)
+	@test -n "$(ARCH)" || { echo "usage: make appbundle ARCH=amd64|arm64"; exit 1; }
+	@$(MAKE) --no-print-directory icon
 	@rm -rf "$(APP_NAME).app"
 	@mkdir -p "$(APP_NAME).app/Contents/MacOS" "$(APP_NAME).app/Contents/Resources"
-	CGO_ENABLED=0 go build -trimpath -ldflags '$(LDFLAGS)' -o "$(APP_NAME).app/Contents/MacOS/$(BINARY_NAME)" .
+	CGO_ENABLED=0 GOOS=darwin GOARCH=$(ARCH) go build -trimpath -ldflags '$(LDFLAGS)' -o "$(APP_NAME).app/Contents/MacOS/$(BINARY_NAME)" .
 	sed 's/@VERSION@/$(VERSION)/' assets/Info.plist.in > "$(APP_NAME).app/Contents/Info.plist"
 	cp assets/icon.icns "$(APP_NAME).app/Contents/Resources/icon.icns"
-	-codesign --force -s - "$(APP_NAME).app" >/dev/null 2>&1 || true
-	@echo "== built $(APP_NAME).app ($(VERSION))"
+	@# Seal the bundle with an ad-hoc signature. This must run on macOS
+	@# (Gatekeeper reports unsigned bundles as "damaged"); on other hosts the
+	@# bundle is still produced, just unsigned.
+	@if command -v codesign >/dev/null 2>&1; then \
+		codesign --force -s - "$(APP_NAME).app" && echo "== signed (ad-hoc)"; \
+	else \
+		echo "== warning: codesign not available, bundle is UNSIGNED"; \
+	fi
+	@echo "== built $(APP_NAME).app (darwin/$(ARCH), $(VERSION))"
+
+appzip: ## Build + sign + zip one .app bundle into dist/ (ARCH=amd64|arm64)
+	@test -n "$(ARCH)" || { echo "usage: make appzip ARCH=amd64|arm64"; exit 1; }
+	@$(MAKE) --no-print-directory appbundle ARCH=$(ARCH)
+	@mkdir -p $(DIST_DIR)
+	@# ditto preserves the signature metadata that plain zip may drop.
+	ditto -c -k --keepParent "$(APP_NAME).app" "$(DIST_DIR)/$(BINARY_NAME)-$(VERSION)-darwin-$(ARCH).app.zip"
+	@echo "== wrote $(DIST_DIR)/$(BINARY_NAME)-$(VERSION)-darwin-$(ARCH).app.zip"
 
 release: ## Cross-compile and package all platforms into dist/
 	@mkdir -p $(DIST_DIR)
@@ -82,20 +103,9 @@ release: ## Cross-compile and package all platforms into dist/
 			tar -czf "$(DIST_DIR)/$$staged.tar.gz" -C "$(DIST_DIR)" "$$staged"; \
 		fi; \
 		rm -rf "$(DIST_DIR)/$$staged" "$(DIST_DIR)/$$bin"; \
-		if [ "$$os" = "darwin" ]; then \
-			echo "== building $(APP_NAME).app ($$arch)"; \
-			$(MAKE) --no-print-directory icon; \
-			appdir="$(DIST_DIR)/$(APP_NAME).app"; \
-			rm -rf "$$appdir"; \
-			mkdir -p "$$appdir/Contents/MacOS" "$$appdir/Contents/Resources"; \
-			CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -trimpath -ldflags '$(LDFLAGS)' -o "$$appdir/Contents/MacOS/$(BINARY_NAME)" .; \
-			sed 's/@VERSION@/$(VERSION)/' assets/Info.plist.in > "$$appdir/Contents/Info.plist"; \
-			cp assets/icon.icns "$$appdir/Contents/Resources/icon.icns"; \
-			(cd "$(DIST_DIR)" && zip -qry "$(BINARY_NAME)-$(VERSION)-$${os}-$${arch}.app.zip" "$(APP_NAME).app"); \
-			rm -rf "$$appdir"; \
-		fi; \
 	done
-	@echo "== artifacts:"; ls -la $(DIST_DIR)
+	@echo "== artifacts (darwin .app.zip is built by the macos-app CI job;"
+	@echo "   locally: make appzip ARCH=arm64|amd64):"; ls -la $(DIST_DIR)
 
 clean: ## Remove build outputs
 	rm -rf $(DIST_DIR) $(BINARY_NAME) $(BINARY_NAME).exe "$(APP_NAME).app"
