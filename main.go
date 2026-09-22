@@ -20,6 +20,7 @@ func main() {
 	}
 
 	dbPath := flag.String("db", lc.Library, "path to the Engine DJ database (m.db)")
+	musicRoot := flag.String("musicroot", lc.MusicRoot, "music root folder used to resolve relative track paths")
 	filter := flag.String("filter", "", "substring filter on title/artist/album/filename/comment (case-insensitive)")
 	fix := flag.Bool("fix", false, "reorder cues/loops (chronological, latest at slot 8) and apply standard slot colours")
 	dryRun := flag.Bool("dry-run", false, "with -fix: show what would change without updating the DB")
@@ -27,12 +28,22 @@ func main() {
 	tool := flag.Int("tool", lc.Tool, "with -ui: tool tab to open (0 = Cues & Loops, 1 = MP3 Tags, 2 = Global Edit, 3 = Relink, 4 = Dedup, 5 = Settings)")
 	theme := flag.String("theme", lc.Theme, "UI theme: auto (OS default), light or dark")
 	snapshot := flag.String("snapshot", "", "render one frame of the UI headlessly to this PNG and exit")
+	genDemo := flag.String("gendemo", "", "create a demo database with fictitious tracks at this path and exit (for docs)")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
+
+	if *genDemo != "" {
+		if err := genDemoDB(*genDemo); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	// Config values became the flag defaults; merge back so the UI and the
 	// persisted settings see the effective values.
 	lc.Library = *dbPath
+	lc.MusicRoot = *musicRoot
 	lc.Theme = *theme
 	lc.Tool = *tool
 

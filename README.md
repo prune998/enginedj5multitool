@@ -30,12 +30,16 @@ The window has a top bar (library path, music root override, theme selector,
 reload), a sidebar with the tools, and a shared track browser (search box —
 **Return** runs the search — plus a sortable, virtualized table; click a row
 to select it, or navigate with the **↑/↓ arrow keys** — the detail panel and
-the list scroll follow along):
+the list scroll follow along). The screenshots below are generated from a
+demo database with fictitious tracks (`make docs` regenerates them):
 
 - **Cues & Loops** — shows the 8 cue and 8 loop slots of the selected track
   with color swatches, timestamps and order status. `Dry run` previews the fix
   inline (per-slot `slot N ← M` changes); `Fix selected track` and
   `Fix all filtered (N)` apply it (writes only happen when dry run is off).
+
+  ![Cues & Loops tool: track browser plus cue/loop slot table with colors and fix controls](docs/screenshot-cues.png)
+
 - **MP3 Tags** — shows the embedded cover art above the form and loads the
   tags of the selected MP3 or M4A file from disk into an editable form (title,
   artist, album, album artist, genre, year, track #, disc #, composer, BPM,
@@ -47,6 +51,8 @@ the list scroll follow along):
   frames; tagless files get a new tag). With *Also update Engine DJ database*
   checked, the matching `Track` row is updated so the library metadata stays
   in sync.
+
+  ![MP3 Tags tool: cover art, rating stars, editable tag form and #tag bubbles](docs/screenshot-tags.png)
 - **Artwork download** — when a track has no embedded cover (or to replace
   it), fetch one from **MusicBrainz** (via the Cover Art Archive, no key
   needed) or **Discogs** (requires a personal access token from
@@ -59,18 +65,28 @@ the list scroll follow along):
   ID3 comment (preserving artwork/POPM via the padding-aware writer), can
   sync the Engine DJ `Track.comment`, supports a dry run with a per-track
   report, and skips files it doesn't need to touch.
+
+  ![Global Edit tool: bulk comment options with Apply to filtered button](docs/screenshot-global.png)
 - **Dedup** — finds groups of library entries that point to the same audio
   file on disk and shows how their metadata (rating, key, track number)
   differs. The first entry of each group is the keeper; extra entries can be
   checked and removed from the database (the audio file is never touched).
+
+  ![Dedup tool: duplicate group with keeper and removable extra entry](docs/screenshot-dedup.png)
+
 - **Relink** — scans the library for tracks whose audio file is missing and
   searches a root folder (defaulting to the Music app folder) for the moved
   file — matching on file name, artist, album, title and file size — then
   points `Track.path` at the new location. Ambiguous matches are reported
   instead of guessed.
+
+  ![Relink tool: missing tracks with green relink proposals and checkboxes](docs/screenshot-relink.png)
+
 - **Settings** — edits `config.yaml` (library path, music root, Engine
   Library folder, Discogs token, theme, browser width, font family and size)
   with explicit Save/Reload.
+
+  ![Settings tool: config editor with demo values](docs/screenshot-settings.png)
 
 Other UI features:
 
@@ -101,7 +117,9 @@ Useful flags:
 | `-ui`       | Force the GUI (default when no CLI action flags are given)          |
 | `-tool N`   | Open tool tab N (0 = Cues & Loops, 1 = MP3 Tags)                    |
 | `-theme T`  | `auto` (OS default), `light` or `dark`                              |
-| `-snapshot png` | Render one frame of the UI headlessly to a PNG and exit (used for testing) |
+| `-musicroot P` | Override the music root folder (same as the top-bar field)       |
+| `-snapshot png` | Render one frame of the UI headlessly to a PNG and exit (used for testing and for `make docs`) |
+| `-gendemo path` | Create a demo database with fictitious tracks at `path` and exit (used by `make docs`; also writes small MP3 files next to it) |
 
 ## CLI
 
@@ -292,6 +310,7 @@ and shirei uses purego for its macOS/Windows backends.
 ```sh
 make build        # current platform -> ./enginedj5multitool
 make check        # gofmt check + go vet + tests
+make docs         # regenerate the README screenshots in docs/ (demo data)
 make macapp       # build "Engine DJ Multi Tool.app" (with icon) for macOS
 make release      # cross-compile + package all platforms into dist/
 make clean

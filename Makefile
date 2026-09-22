@@ -9,7 +9,7 @@ DIST_DIR := dist
 
 .DEFAULT_GOAL := help
 
-.PHONY: help build test vet fmt fmtcheck check snapshot icon macapp release clean snapshot
+.PHONY: help build test vet fmt fmtcheck check snapshot icon docs macapp release clean snapshot
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -39,6 +39,19 @@ snapshot: ## Render one headless UI frame to /tmp/ui.png
 
 icon: ## Generate assets/icon.png + assets/icon.icns (skull-and-crossbones)
 	go run ./cmd/genicon -png assets/icon.png -icns assets/icon.icns
+
+DOCS_DB := /tmp/enginedj5multitool-docs
+
+docs: ## Regenerate the README screenshots in docs/ (fictitious demo data)
+	@rm -rf "$(DOCS_DB)"
+	@go run . -gendemo "$(DOCS_DB)/Engine Library/Database2/m.db"
+	@set -e; for t in 0:cues 1:tags 2:global 3:relink 4:dedup 5:settings; do \
+		n=$${t%%:*}; f=$${t##*:}; \
+		echo "== docs/screenshot-$$f.png"; \
+		go run . -db "$(DOCS_DB)/Engine Library/Database2/m.db" -musicroot "$(DOCS_DB)/Music" \
+			-tool $$n -snapshot "docs/screenshot-$$f.png"; \
+	done
+	@echo "== screenshots written to docs/"
 
 macapp: ## Build "Engine DJ Multi Tool.app" for the current macOS arch
 	@$(MAKE) icon

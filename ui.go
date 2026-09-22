@@ -605,9 +605,42 @@ func runUI(lc LoadedConfig, snapshotPath string, filter string) {
 	if len(a.Tracks) > 0 {
 		a.Selected = a.Tracks[0].ID
 	}
-	if err := RenderToPNG(snapshotPath, 1180, 740, a.RootView); err != nil {
+	seedSnapshotTools(a)
+	if err := RenderToPNG(snapshotPath, 1800, 1000, a.RootView); err != nil {
 		fmt.Fprintf(os.Stderr, "error: snapshot: %v\n", err)
 		os.Exit(1)
+	}
+}
+
+// seedSnapshotTools prepares tool state for documentation snapshots: the
+// Relink scan is pre-run (so the capture shows proposals) and the Settings
+// draft is replaced with neutral demo values — real paths and API tokens
+// must never leak into committed screenshots.
+func seedSnapshotTools(a *App) {
+	if rt, ok := a.Tools[a.ActiveTool].(*RelinkTool); ok && a.MusicRoot != "" {
+		rt.root = a.MusicRoot
+		rep, missingList := rt.scanSync(a)
+		rt.scanned = true
+		rt.missingList = missingList
+		rt.report = rep
+	}
+	if dt, ok := a.Tools[a.ActiveTool].(*DedupTool); ok {
+		groups, total := dt.scanSync(a)
+		dt.scanDone = true
+		dt.groups = groups
+		dt.total = total
+	}
+	if ct, ok := a.Tools[a.ActiveTool].(*ConfigTool); ok {
+		ct.loaded = true
+		ct.path = "/Users/you/Library/Application Support/enginedj5multitool/config.yaml"
+		ct.draft = Config{
+			Library:       "/Users/you/Music/Engine Library/Database2/m.db",
+			MusicRoot:     "/Users/you/Music",
+			EngineLibrary: "/Users/you/Music/Engine Library",
+			Theme:         "auto",
+			BrowserWidth:  660,
+		}
+		ct.syncWidthText()
 	}
 }
 
