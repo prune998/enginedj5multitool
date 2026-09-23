@@ -96,7 +96,7 @@ release: ## Cross-compile and package all platforms into dist/
 		staged=$(BINARY_NAME)-$(VERSION)-$${os}-$${arch}; \
 		rm -rf "$(DIST_DIR)/$$staged"; mkdir -p "$(DIST_DIR)/$$staged"; \
 		cp "$(DIST_DIR)/$$bin" "$(DIST_DIR)/$$staged/$$out"; \
-		cp README.md "$(DIST_DIR)/$$staged/"; \
+		cp README.md LICENSE "$(DIST_DIR)/$$staged/"; \
 		if [ "$$os" = "windows" ]; then \
 			(cd "$(DIST_DIR)" && zip -qr "$$staged.zip" "$$staged"); \
 		else \

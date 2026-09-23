@@ -442,6 +442,19 @@ selector, splitter, library path, tag edits) are session-only and never
 written to the config file — with one exception: the **window size** is saved
 back to the config when the app quits.
 
+## License
+
+This project is licensed under the **GNU General Public License v3.0**
+([LICENSE](LICENSE)).
+
+- **Any copy** of the software (modified or not) must keep the license
+  notice and reference this GPL version — the license travels with the
+  work (GPL §4–5).
+- **Any modified version must be released as open source under the same
+  GPL**, free for anyone to use, study, share and improve — copyleft
+  applies to derivatives of this code.
+- There is no warranty for the program, to the extent permitted by law.
+
 ## CI / Releases
 
 - **CI** (`.github/workflows/ci.yml`): on every push to `main` and every PR —
