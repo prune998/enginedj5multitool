@@ -25,16 +25,16 @@ type PlaylistCreatorTool struct {
 	loadErr   string
 	smartlist []SmartlistInfo
 	tree      []*PlaylistNode
-	flat      []*PlaylistNode // tree in display order with depth
 
 	selSmartlist int    // index into smartlist
 	name         string // name of the playlist to create
 	lastSuggest  string // last auto-filled name (so switching smartlists updates an unedited name)
 
 	selCrit     string // sort criteria (SortCriteria entries); default "title"
-	desc        bool   // sort direction (SegmentedControl target)
+	dir         string // sort direction: "asc" (default) or "desc"
 	selParent   int64  // destination folder (Playlist.id)
-	parentLabel string
+	parentName  string // destination node title (menu button label)
+	parentLabel string // full folder chain for the status line
 
 	tracks     []SmartlistTrack // evaluated + sorted tracks
 	evalErr    string
@@ -67,16 +67,6 @@ func (t *PlaylistCreatorTool) ensureLoaded(a *App) {
 		return
 	}
 	t.tree = tree
-	t.flat = nil
-	var flatten func(nodes []*PlaylistNode, depth int)
-	flatten = func(nodes []*PlaylistNode, depth int) {
-		for _, n := range nodes {
-			t.flat = append(t.flat, n)
-			_ = depth // depth is recomputed at render time from the prefix
-			flatten(n.Children, depth+1)
-		}
-	}
-	flatten(tree, 0)
 	if len(sls) > 0 {
 		t.selectSmartlist(0)
 	}
@@ -100,7 +90,7 @@ func (t *PlaylistCreatorTool) selectSmartlist(idx int) {
 		t.evalErr = err.Error()
 		return
 	}
-	SortSmartlistTracks(tracks, t.selCrit, !t.desc)
+	SortSmartlistTracks(tracks, t.selCrit, t.dir != "desc")
 	t.tracks = tracks
 	if t.name == "" || t.name == t.lastSuggest {
 		t.name = sl.Title
@@ -110,7 +100,7 @@ func (t *PlaylistCreatorTool) selectSmartlist(idx int) {
 
 // reSort re-applies the current sort criteria to the evaluated tracks.
 func (t *PlaylistCreatorTool) reSort() {
-	SortSmartlistTracks(t.tracks, t.selCrit, !t.desc)
+	SortSmartlistTracks(t.tracks, t.selCrit, t.dir != "desc")
 }
 
 // View renders the tool: a smartlist picker, sort controls, an ordered
@@ -173,9 +163,9 @@ func (t *PlaylistCreatorTool) View(a *App) {
 				}) {
 					t.reSort()
 				}
-				if SegmentedControl(&t.desc, func() {
-					SegmentedCell("Asc", false)
-					SegmentedCell("Desc", true)
+				if SegmentedControl(&t.dir, func() {
+					SegmentedCell("Asc", "asc")
+					SegmentedCell("Desc", "desc")
 				}) {
 					t.reSort()
 				}
@@ -204,16 +194,21 @@ func (t *PlaylistCreatorTool) View(a *App) {
 				a.L("The smartlist matches no tracks.", TextColorVec(p.textDim))
 			}
 
-			// Destination picker.
+			// Destination picker: a menu with the whole playlist tree.
 			a.L("Location of the new playlist", FontSize(a.fs(11)), TextColorVec(p.textDim))
-			if t.selParent == 0 {
-				a.L("Pick a folder below (click a row)", FontSize(a.fs(12)), TextColorVec(p.textError))
-			} else {
-				a.L(fmt.Sprintf("Inside: %s", t.parentLabel), FontSize(a.fs(12)), TextColorVec(p.textOk))
-			}
-			Container(Attrs(Grow(1), Expand, Gap(1)), func() {
-				for _, n := range t.flat {
-					t.treeRow(a, n)
+			Container(Attrs(Row, CrossMid, Gap(8)), func() {
+				NextAccessName("plc-dest-menu")
+				AssignAccess()
+				label := "Pick a folder…"
+				if t.selParent != 0 {
+					label = t.parentName
+				}
+				if t.selParent == 0 {
+					CtrlMenuButton(SymFolder, label, func() { t.destinationMenu() })
+					a.L("required", FontSize(a.fs(11)), TextColorVec(p.textError))
+				} else {
+					CtrlMenuButton(SymFolder, label, func() { t.destinationMenu() })
+					a.L(strings.TrimSuffix(t.parentLabel, " → "+t.parentName), FontSize(a.fs(11)), TextColorVec(p.textDim))
 				}
 			})
 
@@ -235,62 +230,50 @@ func (t *PlaylistCreatorTool) View(a *App) {
 	})
 }
 
-// treeRow renders one selectable row of the playlist tree.
-func (t *PlaylistCreatorTool) treeRow(a *App, n *PlaylistNode) {
-	p := a.pal()
-	selected := t.selParent == n.ID
-	NextAccessName(fmt.Sprintf("plc-tree-%d", n.ID))
-	Container(Attrs(Row, CrossMid, Pad2(6, 2), Gap(6)), func() {
-		AssignAccess()
-		// Hovered/clicked must be read while the row is still the current
-		// container (before the children change it).
-		clicked := IsClicked()
-		if selected || IsHovered() {
-			ModAttrs(BackgroundVec(p.rowHover))
-		}
-		if selected {
-			ModAttrs(BackgroundVec(p.rowSel))
-		}
-		Spacer(float32(14 * n.depth))
-		if n.IsFolder {
-			Icon(SymFolder, TextColorVec(p.textDim), FontSize(a.fs(13)))
-		} else {
-			Icon(SymList, TextColorVec(p.textDim), FontSize(a.fs(13)))
-		}
-		a.L(n.Title, FontSize(a.fs(12)))
-		if clicked {
-			// Direct mutation: the click handler runs inside the frame,
-			// which already holds the render lock — WithFrameLock here
-			// would deadlock the app.
-			t.selParent = n.ID
-			t.parentLabel = strings.Join(t.pathOf(n), " → ")
-		}
-	})
+// pickDestination selects n as the destination folder. Called from the
+// menu item click inside the render frame — state must be mutated directly
+// (WithFrameLock here would deadlock the app).
+func (t *PlaylistCreatorTool) pickDestination(n *PlaylistNode) {
+	t.selParent = n.ID
+	t.parentName = n.Title
+	t.parentLabel = strings.Join(t.pathOfByID(t.tree, n.ID), " → ")
 }
 
-// pathOf returns the folder chain of a node (root first).
-func (t *PlaylistCreatorTool) pathOf(n *PlaylistNode) []string {
-	byID := map[int64]*PlaylistNode{}
-	var walk func(nodes []*PlaylistNode)
-	walk = func(nodes []*PlaylistNode) {
-		for _, c := range nodes {
-			byID[c.ID] = c
-			walk(c.Children)
+// destinationMenu builds the location dropdown: the whole playlist tree
+// (folders and playlists, indented by depth, typeahead-filtered). Every node
+// is a valid destination; the current selection is ticked.
+func (t *PlaylistCreatorTool) destinationMenu() {
+	query := strings.ToLower(MenuFilterQuery())
+	visible := func(n *PlaylistNode) bool {
+		return query == "" || strings.Contains(strings.ToLower(n.Title), query)
+	}
+	var walk func(nodes []*PlaylistNode, depth int)
+	walk = func(nodes []*PlaylistNode, depth int) {
+		for _, n := range nodes {
+			if !visible(n) {
+				continue
+			}
+			icon := SymFolder
+			if !n.IsFolder {
+				icon = SymList
+			}
+			if n.ID == t.selParent {
+				icon = SymITick
+			}
+			NextAccessName(fmt.Sprintf("plc-dest-%d", n.ID))
+			Container(Attrs(Row), func() {
+				AssignAccess()
+				Spacer(float32(16 * depth))
+				if MenuItem(icon, n.Title) {
+					t.pickDestination(n)
+				}
+			})
+			walk(n.Children, depth+1)
 		}
 	}
-	walk(t.tree)
-	var chain []string
-	for node := n; node != nil; {
-		chain = append([]string{node.Title}, chain...)
-		node = byID[node.ParentID]
-	}
-	return chain
+	walk(t.tree, 0)
 }
 
-// create materializes the playlist and reports the outcome. It runs in a
-// background goroutine — the entity inserts take noticeable time for large
-// smartlists, and blocking the render frame freezes the whole app (macOS
-// shows the beachball until the frame returns).
 func (t *PlaylistCreatorTool) create(a *App) {
 	if t.creating || a.lib == nil || t.selParent == 0 {
 		return
@@ -322,16 +305,8 @@ func (t *PlaylistCreatorTool) create(a *App) {
 			// Refresh the tree so the new playlist appears in the picker.
 			if tree, err := a.lib.PlaylistTree(); err == nil {
 				t.tree = tree
-				t.flat = nil
-				var flatten func(nodes []*PlaylistNode)
-				flatten = func(nodes []*PlaylistNode) {
-					for _, n := range nodes {
-						t.flat = append(t.flat, n)
-						flatten(n.Children)
-					}
-				}
-				flatten(tree)
 				t.selParent = id
+				t.parentName = t.nodeNameByID(tree, id)
 				t.parentLabel = strings.Join(t.pathOfByID(tree, id), " → ")
 			}
 		})
@@ -356,6 +331,23 @@ func (t *PlaylistCreatorTool) pathOfByID(tree []*PlaylistNode, id int64) []strin
 		node = byID[node.ParentID]
 	}
 	return chain
+}
+
+// nodeNameByID finds a node's title in a freshly loaded tree.
+func (t *PlaylistCreatorTool) nodeNameByID(tree []*PlaylistNode, id int64) string {
+	var walk func(nodes []*PlaylistNode) string
+	walk = func(nodes []*PlaylistNode) string {
+		for _, n := range nodes {
+			if n.ID == id {
+				return n.Title
+			}
+			if found := walk(n.Children); found != "" {
+				return found
+			}
+		}
+		return ""
+	}
+	return walk(tree)
 }
 
 // smartlistNode is one folder/leaf of the smartlist path tree.

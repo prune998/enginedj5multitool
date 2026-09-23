@@ -455,36 +455,53 @@ func TestPlaylistCreatorMenuOpens(t *testing.T) {
 	time.Sleep(60 * time.Millisecond)
 }
 
-// TestPlaylistCreatorTreePick clicks a destination folder row and verifies
-// the selection. The click handler runs inside the render frame — a
-// re-entrant WithFrameLock there deadlocks the app (this test hangs if that
-// regression returns). Hover, press, release with frame time in between
-// (drive.Click's compressed timing is unreliable against the 8ms loop).
-func TestPlaylistCreatorTreePick(t *testing.T) {
-	if raceEnabled {
-		t.Skip("drive harness races under -race (global shirei state)")
+// TestPlaylistCreatorDestinationPick verifies the destination selection
+// handler (invoked from the location menu items). It must mutate state
+// directly — the handler runs inside the render frame, where a re-entrant
+// WithFrameLock would deadlock the app.
+func TestPlaylistCreatorDestinationPick(t *testing.T) {
+	lib := buildPlaylistLibrary(t)
+	var tool PlaylistCreatorTool
+	tree, err := lib.PlaylistTree()
+	if err != nil {
+		t.Fatal(err)
 	}
-	a, port, cleanup := playlistCreatorDriveApp(t)
-	defer cleanup()
-	time.Sleep(60 * time.Millisecond)
-
-	if _, err := drive.Hover(port, "plc-tree-1"); err != nil {
-		t.Fatalf("hover destination folder: %v", err)
-	}
-	time.Sleep(100 * time.Millisecond)
-	if err := drive.Down(port); err != nil {
-		t.Fatalf("mouse down: %v", err)
-	}
-	time.Sleep(100 * time.Millisecond)
-	if err := drive.Up(port); err != nil {
-		t.Fatalf("mouse up: %v", err)
-	}
-	time.Sleep(100 * time.Millisecond)
-	tool := a.Tools[5].(*PlaylistCreatorTool)
+	tool.tree = tree
+	tool.pickDestination(tree[0]) // Folder A
 	if tool.selParent != 1 {
 		t.Fatalf("selParent = %d, want 1 (Folder A)", tool.selParent)
 	}
+	if tool.parentName != "Folder A" {
+		t.Fatalf("parentName = %q, want %q", tool.parentName, "Folder A")
+	}
 	if tool.parentLabel != "Folder A" {
 		t.Fatalf("parentLabel = %q, want %q", tool.parentLabel, "Folder A")
+	}
+	tool.pickDestination(tree[0].Children[0]) // Sub
+	if tool.selParent != 2 || tool.parentName != "Sub" || tool.parentLabel != "Folder A → Sub" {
+		t.Fatalf("after Sub pick: selParent=%d parentName=%q parentLabel=%q",
+			tool.selParent, tool.parentName, tool.parentLabel)
+	}
+}
+
+// TestPlaylistCreatorDirection pins the direction control mapping: "asc"
+// sorts ascending, "desc" descending (reSort must never invert them).
+func TestPlaylistCreatorDirection(t *testing.T) {
+	var tool PlaylistCreatorTool
+	tool.selCrit = "title"
+	tool.tracks = []SmartlistTrack{
+		{ID: 1, Title: "Beta"},
+		{ID: 2, Title: "alpha"},
+		{ID: 3, Title: "Cherry"},
+	}
+	tool.dir = "asc"
+	tool.reSort()
+	if tool.tracks[0].Title != "alpha" || tool.tracks[2].Title != "Cherry" {
+		t.Fatalf("asc order = %q, %q, %q", tool.tracks[0].Title, tool.tracks[1].Title, tool.tracks[2].Title)
+	}
+	tool.dir = "desc"
+	tool.reSort()
+	if tool.tracks[0].Title != "Cherry" || tool.tracks[2].Title != "alpha" {
+		t.Fatalf("desc order = %q, %q, %q", tool.tracks[0].Title, tool.tracks[1].Title, tool.tracks[2].Title)
 	}
 }
