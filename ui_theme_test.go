@@ -119,6 +119,16 @@ func TestSortCommentTags(t *testing.T) {
 		t.Errorf("sortCommentTags with words = %q", got)
 	}
 
+	// #cued / #looped always land at the very end, after the sorted tags.
+	got = sortCommentTags("#looped #techno #cued #house")
+	if got != "#house #techno #cued #looped" {
+		t.Errorf("sortCommentTags cued/looped = %q, want %q", got, "#house #techno #cued #looped")
+	}
+	got = sortCommentTags("#cued #a #looped")
+	if got != "#a #cued #looped" {
+		t.Errorf("sortCommentTags only cued = %q, want %q", got, "#a #cued #looped")
+	}
+
 	// Single tag / empty comment: unchanged.
 	if got := sortCommentTags("#only"); got != "#only" {
 		t.Errorf("single tag = %q", got)
