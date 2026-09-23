@@ -82,6 +82,17 @@ demo database with fictitious tracks (`make docs` regenerates them):
 
   ![Relink tool: missing tracks with green relink proposals and checkboxes](docs/screenshot-relink.png)
 
+- **Playlist Creator** — converts a dynamic playlist (Smartlist) into a real
+  (static) playlist: pick the smartlist, choose a sort criterion (title, bpm,
+  rating, comment, key or date added, each ascending or descending) and see
+  the resulting track order before writing. The destination can be any folder
+  in the playlist tree (click a row in the tree picker). The tool writes the
+  `Playlist` row, rewires the sibling chain and inserts the `PlaylistEntity`
+  rows exactly like Engine DJ does — the new playlist is static and will not
+  follow future smartlist rule changes.
+
+  ![Playlist Creator tool: smartlist picker, sort controls, ordered preview and folder tree](docs/screenshot-playlists.png)
+
 - **Settings** — edits `config.yaml` (library path, music root, Engine
   Library folder, Discogs token, theme, browser width, font family and size)
   with explicit Save/Reload.
@@ -115,7 +126,7 @@ Useful flags:
 | Flag        | Description                                                        |
 |-------------|--------------------------------------------------------------------|
 | `-ui`       | Force the GUI (default when no CLI action flags are given)          |
-| `-tool N`   | Open tool tab N (0 = Cues & Loops, 1 = MP3 Tags)                    |
+| `-tool N`   | Open tool tab N (0 = Cues & Loops, 1 = MP3 Tags, 5 = Playlist Creator, 6 = Settings) |
 | `-theme T`  | `auto` (OS default), `light` or `dark`                              |
 | `-musicroot P` | Override the music root folder (same as the top-bar field)       |
 | `-snapshot png` | Render one frame of the UI headlessly to a PNG and exit (used for testing and for `make docs`) |

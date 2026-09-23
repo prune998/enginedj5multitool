@@ -33,11 +33,53 @@ func genDemoDB(path string) error {
 		id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, artist TEXT, album TEXT,
 		filename TEXT, path TEXT, fileType TEXT, bpmAnalyzed REAL, length INTEGER,
 		bpm INTEGER, year INTEGER, playOrder INTEGER, genre TEXT, comment TEXT, composer TEXT,
-		rating INTEGER, key INTEGER, fileBytes INTEGER
+		rating INTEGER, key INTEGER, fileBytes INTEGER, dateAdded INTEGER
 	);
 	CREATE TABLE PerformanceData (
 		trackId INTEGER PRIMARY KEY, trackData BLOB, quickCues BLOB, loops BLOB, activeOnLoadLoops INTEGER
-	);`
+	);
+	CREATE TABLE Playlist (
+		id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, parentListId INTEGER,
+		isPersisted BOOLEAN, nextListId INTEGER, lastEditTime DATETIME, isExplicitlyExported BOOLEAN
+	);
+	CREATE TABLE PlaylistEntity (
+		id INTEGER PRIMARY KEY AUTOINCREMENT, listId INTEGER, trackId INTEGER,
+		databaseUuid TEXT, nextEntityId INTEGER, membershipReference INTEGER
+	);
+	CREATE TABLE Smartlist (
+		listUuid TEXT PRIMARY KEY, title TEXT, parentPlaylistPath TEXT,
+		nextPlaylistPath TEXT, nextListUuid TEXT, rules TEXT, lastEditTime DATETIME
+	);
+	CREATE TABLE Information (id INTEGER PRIMARY KEY, uuid TEXT, schemaVersionNumber INTEGER);
+	CREATE VIEW PlaylistAllParent AS
+	WITH FindAllParent AS (
+		SELECT id, parentListId FROM Playlist
+		UNION ALL
+		SELECT recursiveCTE.id, Plist.parentListId FROM Playlist Plist
+		INNER JOIN FindAllParent recursiveCTE ON recursiveCTE.parentListId = Plist.id
+	)
+	SELECT * FROM FindAllParent;
+	CREATE VIEW PlaylistAllChildren AS
+	WITH FindAllChild AS (
+		SELECT id, id as childListId FROM Playlist
+		UNION ALL
+		SELECT recursiveCTE.id, Plist.id FROM Playlist Plist
+		INNER JOIN FindAllChild recursiveCTE ON recursiveCTE.childListId = Plist.parentListId
+	)
+	SELECT * FROM FindAllChild WHERE id <> childListId;
+	CREATE VIEW PlaylistPath AS
+	WITH RECURSIVE Heirarchy AS (
+		SELECT id AS child, parentListId AS parent, title AS name, 1 AS depth FROM Playlist
+		UNION ALL
+		SELECT child, parentListId AS parent, title AS name, h.depth + 1 AS depth FROM Playlist c
+		JOIN Heirarchy h ON h.parent = c.id
+		ORDER BY depth DESC
+	),
+	NameConcat AS (
+		SELECT child AS id, GROUP_CONCAT(name, ';') || ';' AS path
+		FROM (SELECT child, name FROM Heirarchy ORDER BY depth DESC) GROUP BY child
+	)
+	SELECT id, path FROM Playlist c LEFT JOIN NameConcat g USING (id);`
 	if _, err := db.Exec(schema); err != nil {
 		return err
 	}
@@ -88,6 +130,20 @@ func genDemoDB(path string) error {
 	tracks = append(tracks, tracks[7])
 	tracks[8].title = "Ferrite Hearts (copy)"
 	tracks[8].rating, tracks[8].key, tracks[8].comment = 0, -1, ""
+
+	// Playlist tree + a smartlist for the Playlist Creator screenshot.
+	if _, err := db.Exec(`INSERT INTO Information (id, uuid, schemaVersionNumber) VALUES (1, 'demo-uuid', 3)`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`INSERT INTO Playlist (id, title, parentListId, isPersisted, nextListId, lastEditTime, isExplicitlyExported)
+		VALUES (1, 'Demo Mixes', 0, 1, 0, datetime('now'), 0)`); err != nil {
+		return err
+	}
+	rules := `{"match":"all","rules":[{"col":"comment","con":"LIKE","param":"'%#techno%'","v":"2.20.0"}]}`
+	if _, err := db.Exec(`INSERT INTO Smartlist (listUuid, title, parentPlaylistPath, rules)
+		VALUES ('demo-uuid-1', 'Techno Peaktime', 'Demo Mixes;', ?)`, rules); err != nil {
+		return err
+	}
 	for i, tr := range tracks {
 		fileType := "mp3"
 		// Two tracks live in a "moved" folder so the Relink screenshot has
@@ -112,10 +168,10 @@ func genDemoDB(path string) error {
 		}
 		storedRel, _ := filepath.Rel(filepath.Join(base, "Engine Library"),
 			filepath.Join(base, "Music", "Demo", tr.artist, pathTitle+"."+fileType))
-		res, err := db.Exec(`INSERT INTO Track (title, artist, album, filename, path, fileType, bpmAnalyzed, length, bpm, year, playOrder, genre, comment, composer, rating, key, fileBytes)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?)`,
+		res, err := db.Exec(`INSERT INTO Track (title, artist, album, filename, path, fileType, bpmAnalyzed, length, bpm, year, playOrder, genre, comment, composer, rating, key, fileBytes, dateAdded)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?)`,
 			tr.title, tr.artist, tr.album, tr.title+"."+fileType, "../"+storedRel,
-			fileType, float64(tr.bpm), tr.lengthSec, tr.bpm, tr.year, (i%4)+1, tr.genre, tr.comment, tr.rating, tr.key, fileBytes)
+			fileType, float64(tr.bpm), tr.lengthSec, tr.bpm, tr.year, (i%4)+1, tr.genre, tr.comment, tr.rating, tr.key, fileBytes, 1700000000+i*86400)
 		if err != nil {
 			return err
 		}

@@ -39,6 +39,7 @@ func init() {
 	RegisterTool(func() AppTool { return &GlobalTool{} })
 	RegisterTool(func() AppTool { return &RelinkTool{} })
 	RegisterTool(func() AppTool { return &DedupTool{} })
+	RegisterTool(func() AppTool { return &PlaylistCreatorTool{} })
 	RegisterTool(func() AppTool { return &ConfigTool{} })
 }
 
