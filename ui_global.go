@@ -15,6 +15,7 @@ import (
 type GlobalTool struct {
 	sortTags bool
 	addTags  bool
+	addStems bool
 	alsoDB   bool
 	dryRun   bool
 
@@ -53,6 +54,7 @@ func (t *GlobalTool) View(a *App) {
 			Container(Attrs(Gap(6), Pad2(8, 0)), func() {
 				CheckBox(&t.sortTags, "Re-order the comment #tags alphabetically")
 				CheckBox(&t.addTags, "Add #cued / #looped when a track has more than one cue or loop")
+				CheckBox(&t.addStems, "Add #stem when the track has stems generated")
 				CheckBox(&t.alsoDB, "Also update the comment in the Engine DJ database")
 				CheckBox(&t.dryRun, "Dry run (report only, no writes)")
 			})
@@ -84,7 +86,8 @@ func (t *GlobalTool) Apply(a *App) (changed, unchanged, failed, skipped int) {
 			rep.lines = append(rep.lines, reportLine{fmt.Sprintf("#%d: %v", rec.ID, err), "err"})
 			continue
 		}
-		addApplicable := t.addTags && (countSetCues(d) > 1 || countSetLoops(d) > 1)
+		stemApplicable := t.addStems && a.lib.HasStems(rec.ID)
+		addApplicable := (t.addTags && (countSetCues(d) > 1 || countSetLoops(d) > 1)) || stemApplicable
 		if !t.sortTags && !addApplicable {
 			// Nothing would change: skip the file entirely.
 			unchanged++
@@ -106,6 +109,12 @@ func (t *GlobalTool) Apply(a *App) (changed, unchanged, failed, skipped int) {
 
 		newComment := tags.Comment
 		var notes []string
+		if stemApplicable {
+			if s := addTag(newComment, "stem"); s != newComment {
+				newComment = s
+				notes = append(notes, "+#stem")
+			}
+		}
 		if addApplicable {
 			if countSetCues(d) > 1 {
 				if s := addTag(newComment, "cued"); s != newComment {

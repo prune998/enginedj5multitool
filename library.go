@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"enginedj5multitool/db"
 
@@ -26,6 +27,9 @@ type Library struct {
 	EngineLibrary string // Engine Library folder (e.g. ~/Music/Engine Library)
 
 	q *db.Queries
+
+	stemsOnce    sync.Once
+	stemsUUIDVal string
 }
 
 // OpenLibrary opens the database. Read-only when readOnly is true.

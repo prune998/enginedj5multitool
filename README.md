@@ -133,8 +133,10 @@ demo database with fictitious tracks (`make docs` regenerates them):
   song title** (falling back to the album), and the downloaded art is
   previewed and embedded into the file when you press *Save changes*.
 - **Global Edit** — bulk comment maintenance for every track matching the
-  current filter: re-order the comment `#tags` alphabetically and add
-  `#cued` / `#looped` when a track has more than one cue or loop. Writes the
+  current filter: re-order the comment `#tags` alphabetically, add
+  `#cued` / `#looped` when a track has more than one cue or loop, and add
+  `#stem` when the track has stems generated (the status tags always sort
+  to the end, in `#cued` → `#looped` → `#stem` order). Writes the
   ID3 comment (preserving artwork/POPM via the padding-aware writer), can
   sync the Engine DJ `Track.comment`, supports a dry run with a per-track
   report, and skips files it doesn't need to touch.
@@ -165,6 +167,17 @@ demo database with fictitious tracks (`make docs` regenerates them):
   follow future smartlist rule changes.
 
   ![Playlist Creator tool: smartlist picker, sort controls, ordered preview and folder tree](docs/screenshot-playlists.png)
+
+- **Stems** — tracks with Engine DJ stem separations show a stem icon in
+  the track list; clicking it opens a side panel with **Play/Stop** and
+  per-stem **mute toggles** (Drums / Bass / Other / Vocals) mixed in
+  lockstep (pure-Go audio through the shirei mixer — no external
+  libraries). The `.stems` container is parsed in pure Go (MP4 boxes +
+  sample tables). **Note:** the stem audio payload itself is
+  Engine-proprietary (the frames do not parse as standard AAC — both
+  ffmpeg and CoreAudio reject them), so playback currently reports an
+  error for those files; the detection, icon and panel are ready for when
+  a decode path exists.
 
 - **Settings** — edits `config.yaml` (library path, music root, Engine
   Library folder, Discogs token, theme, browser width, font family and size)
@@ -444,15 +457,14 @@ back to the config when the app quits.
 
 ## License
 
-This project is licensed under the **GNU General Public License v3.0**
+This project is licensed under the **Apache License, Version 2.0**
 ([LICENSE](LICENSE)).
 
-- **Any copy** of the software (modified or not) must keep the license
-  notice and reference this GPL version — the license travels with the
-  work (GPL §4–5).
-- **Any modified version must be released as open source under the same
-  GPL**, free for anyone to use, study, share and improve — copyleft
-  applies to derivatives of this code.
+- Copies and derivative works must carry the license notice and attribute
+  the original project (Apache-2.0 §4).
+- Modifications are welcome and may be distributed under terms of your
+  choosing — the license is permissive; the only hard requirements are
+  keeping the NOTICE/license text and stating significant changes.
 - There is no warranty for the program, to the extent permitted by law.
 
 ## CI / Releases

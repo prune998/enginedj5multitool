@@ -341,15 +341,38 @@ func TestGlobalEditCommentTags(t *testing.T) {
 		}
 	}
 
+	// Track 5 gets a stems file, so the #stem option has something to do.
+	{
+		udb, err := sql.Open("sqlite", dbPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer udb.Close()
+		if _, err := udb.Exec(`CREATE TABLE IF NOT EXISTS Information (id INTEGER PRIMARY KEY, uuid TEXT)`); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := udb.Exec(`INSERT OR REPLACE INTO Information (id, uuid) VALUES (1, 'test-uuid')`); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stemsDir := filepath.Join(filepath.Dir(dbPath), "Stems")
+	if err := os.MkdirAll(stemsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stemsDir, "5 test-uuid.stems"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
 	a := NewApp(dbPath)
 	defer a.Close() // release the DB handle (Windows file locks)
+	a.lib.EngineLibrary = filepath.Dir(dbPath)
 	// Seed the file comment (unsorted, with a non-tag word).
 	if err := SaveMediaTags(mp3, MediaTags{Title: "Emotion", Comment: "#ztag some note #atag"}); err != nil {
 		t.Fatal(err)
 	}
 
 	g := a.Tools[2].(*GlobalTool)
-	g.sortTags, g.addTags, g.alsoDB = true, true, true
+	g.sortTags, g.addTags, g.addStems, g.alsoDB = true, true, true, true
 	g.dryRun = false
 	changed, unchanged, failed, skipped := g.Apply(a)
 
@@ -357,12 +380,13 @@ func TestGlobalEditCommentTags(t *testing.T) {
 		t.Fatalf("apply: changed=%d unchanged=%d failed=%d skipped=%d", changed, unchanged, failed, skipped)
 	}
 
-	// File comment: tags sorted, #cued + #looped added, non-tag words kept.
+	// File comment: tags sorted, #cued + #looped + #stem added (status tags
+	// always last, in cued → looped → stem order), non-tag words kept.
 	tags, err := ReadMediaTags(mp3)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "#atag #ztag #cued #looped some note"
+	want := "#atag #ztag #cued #looped #stem some note"
 	if tags.Comment != want {
 		t.Errorf("file comment = %q, want %q", tags.Comment, want)
 	}

@@ -22,9 +22,10 @@ type TagsTool struct {
 	pathText string // display copy of the path (selectable input)
 	pathErr  string // file missing / not an mp3
 
-	tags    MediaTags
-	art     *MediaArt // embedded artwork from the file
-	readErr string
+	tags     MediaTags
+	art      *MediaArt // embedded artwork from the file
+	readErr  string
+	readOnly bool // WAV: tags are shown but cannot be saved
 
 	// artwork download state (mutated from the download goroutine under the
 	// frame lock, read during frames)
@@ -122,6 +123,7 @@ func (t *TagsTool) EditorPanel(a *App) {
 	t.RatingRow(a, rec)
 	t.Form(a)
 	t.TagBubbles(a)
+	a.playbackSection(rec)
 	t.SaveRow(a, rec)
 }
 
@@ -474,6 +476,7 @@ func (t *TagsTool) TagBubbles(a *App) {
 	p := a.pal()
 	a.L("Tags", FontSize(a.fs(11)), TextColorVec(p.textDim))
 	Container(Attrs(Expand, Gap(6), Pad2(2, 0)), func() {
+		// The bubbles wrap freely on their own lines...
 		Container(Attrs(Row, Wrap, CrossMid, Gap(6)), func() {
 			for _, name := range tags {
 				n := name
@@ -490,6 +493,9 @@ func (t *TagsTool) TagBubbles(a *App) {
 					a.L("×", FontSize(a.fs(12)), TextColorVec(p.bubbleInk))
 				})
 			}
+		})
+		// ...and the add/sort controls sit on one line below them all.
+		Container(Attrs(Row, CrossMid, Gap(6), Pad2(0, 4)), func() {
 			Container(Attrs(Grow(1), MinWidth(140), MaxWidth(220)), func() {
 				at := DefaultTextInputAttrs()
 				at.Placeholder = "#tag"
@@ -563,15 +569,17 @@ func isDigitByte(c byte) bool { return c >= '0' && c <= '9' }
 // sortCommentTags reorders the #tags of a comment in natural alphabetical
 // order (numeric runs in numeric order: #9aaa before #92test). Non-tag words
 // keep their relative order after the sorted tags.
+// statusTagRank orders the state tags that always sort to the very end
+// (rightmost) of the comment: #cued, #looped, then #stem. They flag track
+// readiness, not a genre.
+var statusTagRank = map[string]int{"cued": 0, "looped": 1, "stem": 2}
+
 func sortCommentTags(comment string) string {
 	fields := strings.Fields(comment)
 	var tags, last, rest []string
 	for _, tok := range fields {
 		if len(tok) > 1 && tok[0] == '#' {
-			// #cued and #looped always sort to the very end (rightmost) —
-			// they flag playlist readiness, not a genre.
-			name := strings.TrimLeft(tok, "#")
-			if name == "cued" || name == "looped" {
+			if _, ok := statusTagRank[strings.TrimLeft(tok, "#")]; ok {
 				last = append(last, tok)
 			} else {
 				tags = append(tags, tok)
@@ -583,8 +591,9 @@ func sortCommentTags(comment string) string {
 	sort.SliceStable(tags, func(i, j int) bool {
 		return naturalLess(strings.TrimLeft(tags[i], "#"), strings.TrimLeft(tags[j], "#"))
 	})
+	// Status tags keep their fixed relative order (cued → looped → stem).
 	sort.SliceStable(last, func(i, j int) bool {
-		return naturalLess(strings.TrimLeft(last[i], "#"), strings.TrimLeft(last[j], "#"))
+		return statusTagRank[strings.TrimLeft(last[i], "#")] < statusTagRank[strings.TrimLeft(last[j], "#")]
 	})
 	tags = append(tags, last...)
 	return strings.Join(append(tags, rest...), " ")
