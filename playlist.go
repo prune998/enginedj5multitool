@@ -361,7 +361,13 @@ func (l *Library) CreatePlaylist(title string, parentID int64, trackIDs []int64)
 	// the Engine DJ schema — they derive from the Playlist rows above and
 	// must not (and cannot) be written.
 
-	// Entities: ascending ids, each pointing back at the previous one.
+	// Entities: Engine plays the playlist by following nextEntityId from
+	// the head — the entity nobody points at. Inserting the LAST song
+	// first (nextEntityId = 0) and each earlier song pointing at the
+	// previously inserted entity makes the head the FIRST song of the
+	// playlist, so the play order matches trackIDs exactly. (Inserting in
+	// play order produces a reversed playlist — Engine follows the chain,
+	// not the entity id order.)
 	// A prepared statement keeps large smartlists (1000+ tracks) fast —
 	// per-row statement re-parsing dominates otherwise.
 	var uuid string
@@ -375,8 +381,8 @@ func (l *Library) CreatePlaylist(title string, parentID int64, trackIDs []int64)
 	}
 	defer stmt.Close()
 	prev := int64(0)
-	for _, trackID := range trackIDs {
-		res, err := stmt.Exec(newID, trackID, uuid, prev)
+	for i := len(trackIDs) - 1; i >= 0; i-- {
+		res, err := stmt.Exec(newID, trackIDs[i], uuid, prev)
 		if err != nil {
 			return 0, err
 		}

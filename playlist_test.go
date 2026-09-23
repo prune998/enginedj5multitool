@@ -287,8 +287,10 @@ func TestCreatePlaylist(t *testing.T) {
 		t.Fatalf("AllChildren (1, %d) rows = %d", newID, n)
 	}
 
-	// Entities: order by id, backward chain (first has next=0, each next
-	// points at the previous entity), correct track ids and uuid.
+	// Entities: Engine plays the chain from the head (the entity nobody
+	// points at), so entities are stored in REVERSE play order — lowest id
+	// = last song (nextEntityId 0), each next pointing at the previously
+	// inserted entity. The chain from the head must reproduce trackIDs.
 	rows, err := lib.DB.Query(`SELECT id, trackId, nextEntityId, databaseUuid FROM PlaylistEntity WHERE listId = ? ORDER BY id`, newID)
 	if err != nil {
 		t.Fatal(err)
@@ -312,17 +314,45 @@ func TestCreatePlaylist(t *testing.T) {
 	if len(got) != len(ids) {
 		t.Fatalf("entities = %d, want %d", len(got), len(ids))
 	}
+	// Engine plays the chain from the head (the entity with no inbound
+	// pointer): the head must be the FIRST song of trackIDs and following
+	// nextEntityId must reproduce the exact play order.
+	referenced := map[int64]bool{}
+	byEntity := map[int64]struct {
+		id, trackID, next int64
+	}{}
+	for _, e := range got {
+		byEntity[e.id] = struct {
+			id, trackID, next int64
+		}{e.id, e.trackID, e.next}
+		if e.next != 0 {
+			referenced[e.next] = true
+		}
+	}
+	playOrder := make([]int64, 0, len(got))
+	next = 0 // reuse the outer variable (declared for the sibling check)
+	for _, e := range got {
+		if !referenced[e.id] {
+			next = e.id
+			break
+		}
+	}
+	seen := map[int64]bool{}
+	for next != 0 && !seen[next] {
+		seen[next] = true
+		e := byEntity[next]
+		playOrder = append(playOrder, e.trackID)
+		next = e.next
+	}
+	if len(playOrder) != len(ids) {
+		t.Fatalf("chain covers %d entities, want %d", len(playOrder), len(ids))
+	}
+	for i, trackID := range playOrder {
+		if trackID != ids[i] {
+			t.Errorf("play order position %d = track %d, want %d", i, trackID, ids[i])
+		}
+	}
 	for i, e := range got {
-		if e.trackID != ids[i] {
-			t.Errorf("entity %d trackId = %d, want %d", i, e.trackID, ids[i])
-		}
-		wantNext := int64(0)
-		if i > 0 {
-			wantNext = got[i-1].id
-		}
-		if e.next != wantNext {
-			t.Errorf("entity %d nextEntityId = %d, want %d", i, e.next, wantNext)
-		}
 		if e.uuid != "test-uuid" {
 			t.Errorf("entity %d databaseUuid = %q", i, e.uuid)
 		}
