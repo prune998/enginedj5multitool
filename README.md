@@ -2,6 +2,17 @@
 
 [![CI](https://github.com/prune998/enginedj5multitool/actions/workflows/ci.yml/badge.svg)](https://github.com/prune998/enginedj5multitool/actions/workflows/ci.yml)
 
+> [!WARNING]
+> **Before using this tool:**
+>
+> 1. **Quit Engine DJ completely** — Engine DJ Desktop, and any DJ hardware
+>    running Engine DJ that has the library mounted. Engine holds the
+>    database open and caches state; writing while it runs can corrupt the
+>    database or make your changes disappear.
+> 2. **Back up the database first** — copy the `Engine Library` folder (at
+>    minimum `Database2/m.db`) somewhere safe. Every write tool in this app
+>    edits the live database in place; the backup is your undo.
+
 A CLI + GUI tool to inspect and fix the performance data (hot cues and loops)
 stored in an **Engine DJ v5** database (`m.db`), used by Denon DJ SC/LC/Prime
 gear and Engine DJ Desktop. Built with the pure-Go UI toolkit
