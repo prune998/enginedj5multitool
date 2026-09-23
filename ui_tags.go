@@ -22,9 +22,10 @@ type TagsTool struct {
 	pathText string // display copy of the path (selectable input)
 	pathErr  string // file missing / not an mp3
 
-	tags    MediaTags
-	art     *MediaArt // embedded artwork from the file
-	readErr string
+	tags     MediaTags
+	art      *MediaArt // embedded artwork from the file
+	readErr  string
+	readOnly bool // WAV: tags are shown but cannot be saved
 
 	// artwork download state (mutated from the download goroutine under the
 	// frame lock, read during frames)
@@ -122,7 +123,7 @@ func (t *TagsTool) EditorPanel(a *App) {
 	t.RatingRow(a, rec)
 	t.Form(a)
 	t.TagBubbles(a)
-	a.stemsSection(rec)
+	a.playbackSection(rec)
 	t.SaveRow(a, rec)
 }
 

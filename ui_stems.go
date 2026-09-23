@@ -36,17 +36,15 @@ func (a *App) stopPlayback() {
 	}
 }
 
-// stemsSection renders the stems player inside the MP3 Tags pane for the
-// selected track (nothing renders when the track has no stems).
-func (a *App) stemsSection(rec TrackRecord) {
-	if a.lib == nil || !a.stemsSet[rec.ID] {
-		return
-	}
+// playbackSection renders the player inside the MP3 Tags pane for the
+// selected track — available for every track regardless of format or stems.
+// For stemmed tracks the (not yet working) stem list is shown as well.
+func (a *App) playbackSection(rec TrackRecord) {
 	pk := a.pal()
-	a.L("Stems", FontSize(a.fs(13)), FontWeight(WeightBold))
+	a.L("Playback", FontSize(a.fs(13)), FontWeight(WeightBold))
 	playing := a.stemsPlayer != nil && a.stemsPlayerTrack == rec.ID && a.stemsPlayer.playing.Load()
 	Container(Attrs(Row, CrossMid, Gap(8), Pad2(4, 0)), func() {
-		if CtrlButton(SymPlay, "Play original file", !playing) {
+		if CtrlButton(SymPlay, "Play", !playing) {
 			a.startPlayback(rec)
 		}
 		if CtrlButton(SymCancel, "Stop", playing) {
@@ -61,17 +59,19 @@ func (a *App) stemsSection(rec TrackRecord) {
 			}
 		}
 	})
-	a.L("Stems (all selected — stem playback is not yet working):", FontSize(a.fs(11)), TextColorVec(pk.textDim))
-	Container(Attrs(Row, Wrap, CrossMid, Gap(10), Pad2(2, 1)), func() {
-		for _, name := range StemNames {
-			Container(Attrs(Row, CrossMid, Gap(4)), func() {
-				Icon(SymBoxTick, TextColorVec(pk.textOk), FontSize(a.fs(12)))
-				a.L(name, FontSize(a.fs(12)))
-			})
-		}
-	})
-	a.wrappedText("Stems are the Engine DJ separations stored next to the library. Stem playback is not yet working — the stems payload is Engine-proprietary and cannot be decoded yet. Play plays the original file in any format.",
-		a.paneTextWidth(), FontSize(a.fs(11)), TextColorVec(pk.textDim))
+	if a.lib != nil && a.stemsSet[rec.ID] {
+		a.L("Stems (all selected — stem playback is not yet working):", FontSize(a.fs(11)), TextColorVec(pk.textDim))
+		Container(Attrs(Row, Wrap, CrossMid, Gap(10), Pad2(2, 1)), func() {
+			for _, name := range StemNames {
+				Container(Attrs(Row, CrossMid, Gap(4)), func() {
+					Icon(SymBoxTick, TextColorVec(pk.textOk), FontSize(a.fs(12)))
+					a.L(name, FontSize(a.fs(12)))
+				})
+			}
+		})
+		a.wrappedText("Stems are the Engine DJ separations stored next to the library. Stem playback is not yet working — the stems payload is Engine-proprietary and cannot be decoded yet. Play plays the original file in any format.",
+			a.paneTextWidth(), FontSize(a.fs(11)), TextColorVec(pk.textDim))
+	}
 }
 
 // buildStemsSet scans the library for tracks with stems. Called
