@@ -10,6 +10,7 @@ import (
 	generic "go.hasen.dev/generic"
 	. "go.hasen.dev/shirei"
 	app "go.hasen.dev/shirei/app"
+	"go.hasen.dev/shirei/audio"
 	. "go.hasen.dev/shirei/widgets"
 )
 
@@ -89,6 +90,18 @@ type App struct {
 	// macOS Full Disk Access: set at startup when TCC blocks the Music
 	// folder; the banner offers a shortcut to the settings pane.
 	fdaNotice bool
+
+	// Stems: which tracks have stem files, the player state (the player
+	// lives in the MP3 Tags pane), and the audio mixer (platform audio
+	// starts on first stems playback).
+	stemsSet         map[int64]bool
+	stemsScanDone    chan struct{}
+	stemsPlayer      *AudioPlayer
+	stemsPlayerTrack int64
+	stemsMute        [4]bool // stem enabled state (unchecked = muted)
+	stemsMutePrev    [4]bool
+	mixer            *audio.Mixer
+	audioStarted     bool
 }
 
 const (
@@ -99,7 +112,7 @@ const (
 
 // NewApp builds the app state and opens the library.
 func NewApp(dbPath string) *App {
-	a := &App{DBPath: dbPath, Theme: "auto", splitW: 560, SortState: TableSortState{Column: 1}}
+	a := &App{DBPath: dbPath, Theme: "auto", splitW: 560, SortState: TableSortState{Column: 1}, mixer: audio.NewMixer()}
 	for _, f := range toolFactories {
 		a.Tools = append(a.Tools, f())
 	}
@@ -119,8 +132,13 @@ func (a *App) SelectedTrack() (TrackRecord, bool) {
 
 // Close releases the database handle (no-op when the library never opened).
 // Tests must call it so temp directories can be cleaned up on Windows,
-// which refuses to delete files that are still open.
+// which refuses to delete files that are still open. It also waits for the
+// background stems scan so nothing outlives the test.
 func (a *App) Close() {
+	if a.stemsScanDone != nil {
+		<-a.stemsScanDone
+		a.stemsScanDone = nil
+	}
 	if a.lib != nil {
 		a.lib.Close()
 		a.lib = nil
@@ -153,6 +171,7 @@ func (a *App) Refresh() {
 	}
 	a.Tracks = tracks
 	a.TrackCount = len(tracks)
+	a.buildStemsSet()
 }
 
 // RootView is the whole UI: a top bar with library controls, a tool sidebar
@@ -455,6 +474,7 @@ func (a *App) trackColumns(extra *TableColumn[TrackRecord]) []TableColumn[TrackR
 			Cell: func(r TrackRecord) { a.L(fmt.Sprintf("%d", r.ID)) },
 			Less: func(a, b TrackRecord) bool { return a.ID < b.ID },
 		},
+		stemsColumn(a),
 		{
 			Label: "Artist", Width: 190,
 			Cell: func(r TrackRecord) { a.L(r.Artist) },
@@ -608,6 +628,13 @@ func runUI(lc LoadedConfig, snapshotPath string, filter string) {
 	a := NewApp(lc.Library)
 	a.MusicRoot = lc.MusicRoot
 	a.EngineLibrary = lc.EngineLibrary
+	// NewApp's Refresh ran before the library paths were set — push them
+	// into the open library and rescan for stems.
+	if a.lib != nil {
+		a.lib.MusicRoot = a.MusicRoot
+		a.lib.EngineLibrary = a.EngineLibrary
+	}
+	a.buildStemsSet()
 	a.Theme = lc.Theme
 	a.FontFamily = lc.FontFamily
 	a.FontSize = lc.FontSize

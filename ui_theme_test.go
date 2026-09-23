@@ -128,6 +128,10 @@ func TestSortCommentTags(t *testing.T) {
 	if got != "#a #cued #looped" {
 		t.Errorf("sortCommentTags only cued = %q, want %q", got, "#a #cued #looped")
 	}
+	got = sortCommentTags("#stem #techno #cued #house #looped")
+	if got != "#house #techno #cued #looped #stem" {
+		t.Errorf("sortCommentTags stem = %q, want %q", got, "#house #techno #cued #looped #stem")
+	}
 
 	// Single tag / empty comment: unchanged.
 	if got := sortCommentTags("#only"); got != "#only" {
