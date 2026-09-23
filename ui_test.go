@@ -362,7 +362,7 @@ func TestGlobalEditCommentTags(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "#atag #cued #looped #ztag some note"
+	want := "#atag #ztag #cued #looped some note"
 	if tags.Comment != want {
 		t.Errorf("file comment = %q, want %q", tags.Comment, want)
 	}

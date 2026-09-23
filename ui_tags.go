@@ -565,10 +565,17 @@ func isDigitByte(c byte) bool { return c >= '0' && c <= '9' }
 // keep their relative order after the sorted tags.
 func sortCommentTags(comment string) string {
 	fields := strings.Fields(comment)
-	var tags, rest []string
+	var tags, last, rest []string
 	for _, tok := range fields {
 		if len(tok) > 1 && tok[0] == '#' {
-			tags = append(tags, tok)
+			// #cued and #looped always sort to the very end (rightmost) —
+			// they flag playlist readiness, not a genre.
+			name := strings.TrimLeft(tok, "#")
+			if name == "cued" || name == "looped" {
+				last = append(last, tok)
+			} else {
+				tags = append(tags, tok)
+			}
 		} else {
 			rest = append(rest, tok)
 		}
@@ -576,6 +583,10 @@ func sortCommentTags(comment string) string {
 	sort.SliceStable(tags, func(i, j int) bool {
 		return naturalLess(strings.TrimLeft(tags[i], "#"), strings.TrimLeft(tags[j], "#"))
 	})
+	sort.SliceStable(last, func(i, j int) bool {
+		return naturalLess(strings.TrimLeft(last[i], "#"), strings.TrimLeft(last[j], "#"))
+	})
+	tags = append(tags, last...)
 	return strings.Join(append(tags, rest...), " ")
 }
 

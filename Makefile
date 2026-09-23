@@ -45,7 +45,7 @@ DOCS_DB := /tmp/enginedj5multitool-docs
 docs: ## Regenerate the README screenshots in docs/ (fictitious demo data)
 	@rm -rf "$(DOCS_DB)"
 	@go run . -gendemo "$(DOCS_DB)/Engine Library/Database2/m.db"
-	@set -e; for t in 0:cues 1:tags 2:global 3:relink 4:dedup 5:settings; do \
+	@set -e; for t in 0:cues 1:tags 2:global 3:relink 4:dedup 5:playlists 6:settings; do \
 		n=$${t%%:*}; f=$${t##*:}; \
 		echo "== docs/screenshot-$$f.png"; \
 		go run . -db "$(DOCS_DB)/Engine Library/Database2/m.db" -musicroot "$(DOCS_DB)/Music" \
