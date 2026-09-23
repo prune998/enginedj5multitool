@@ -19,6 +19,68 @@ It can:
   into the Engine DJ database
 - run the fix in **dry-run mode** that never touches the database
 
+## Install
+
+### Download a release (recommended)
+
+Grab an archive from the
+[Releases page](https://github.com/prune998/enginedj5multitool/releases) —
+every tagged release ships:
+
+| File | For |
+|------|-----|
+| `enginedj5multitool-<version>-darwin-arm64.app.zip` | macOS app bundle (Apple Silicon) |
+| `enginedj5multitool-<version>-darwin-amd64.app.zip` | macOS app bundle (Intel) |
+| `enginedj5multitool-<version>-darwin-<arch>.tar.gz` | macOS CLI binary |
+| `enginedj5multitool-<version>-windows-amd64.zip`    | Windows CLI binary |
+| `enginedj5multitool-<version>-linux-<arch>.tar.gz`  | Linux CLI binary |
+
+The version matches the release tag (e.g. `v1.2.0`). Check it any time with
+`./enginedj5multitool -version`; the macOS bundle also reports it under
+**Finder → right-click the app → Get Info → Version**.
+
+### macOS app, step by step
+
+1. Download `…-darwin-<arch>.app.zip` (Apple Silicon = `arm64`, Intel =
+   `amd64` — check with the Apple menu → About This Mac → Chip).
+2. Unzip it (double-click) and drag **Engine DJ Multi Tool.app** into
+   `/Applications` (or run it from anywhere).
+3. **First launch** — the bundle is ad-hoc signed (real Developer ID
+   notarization needs a paid Apple Developer account), so Gatekeeper asks
+   for a one-time confirmation:
+   - *"app is damaged and can't be opened"* — clear the download's
+     quarantine flag once, then reopen:
+
+     ```sh
+     xattr -cr "/Applications/Engine DJ Multi Tool.app"
+     ```
+
+   - *"Apple could not verify…"* — right-click the app → **Open**, or
+     **System Settings → Privacy & Security** → **Open Anyway**.
+4. **Full Disk Access** — macOS privacy silently blocks the Music folder
+   for Finder-launched apps (the Engine DJ library lives there). The app
+   detects this at startup and opens
+   **System Settings → Privacy & Security → Full Disk Access** for you:
+   add **Engine DJ Multi Tool** to the list and restart the app. A banner
+   under the top bar stays visible while the restriction is detected.
+
+After these one-time steps the app launches normally. Updates: download the
+new `.app.zip` and replace the old bundle — the config (library paths,
+theme, …) lives in the per-user config directory and survives.
+
+### Windows / Linux
+
+Extract the archive anywhere and run the binary:
+
+```sh
+./enginedj5multitool                      # GUI, loads ./m.db if present
+./enginedj5multitool -db /path/to/m.db    # GUI with an explicit database
+```
+
+Windows SmartScreen may ask for confirmation on first run (unsigned
+binary) — *More info → Run anyway*. The CLI flags below work on all
+platforms.
+
 ## GUI
 
 ```sh
@@ -338,35 +400,9 @@ from `git describe` (override with `make release VERSION=v1.2.3`).
 The macOS app icon (skull-and-crossbones on black) is generated
 programmatically by `cmd/genicon` (`make icon` writes `assets/icon.png` and
 `assets/icon.icns`); `make macapp` and `make release` regenerate it
-automatically.
-
-#### Installing the macOS app
-
-The released `.app.zip` bundles are **ad-hoc signed** (proper Developer ID
-notarization requires a paid Apple Developer account), so Gatekeeper may
-complain on first launch after a download:
-
-- *"app is damaged and can't be opened"* — the download carries the
-  quarantine flag; clear it once and reopen:
-
-  ```sh
-  xattr -cr "Engine DJ Multi Tool.app"
-  ```
-
-- *"Apple could not verify…"* — right-click the app → **Open**, or open
-  **System Settings → Privacy & Security** and click **Open Anyway**.
-
-Both are one-time steps; the app then launches normally.
-
-#### Full Disk Access
-
-macOS privacy (TCC) silently blocks apps launched from Finder from reading
-the Music folder — the Engine DJ library and the Music.app media tree live
-there. At startup the app detects this and automatically opens
-**System Settings → Privacy & Security → Full Disk Access**; add
-"Engine DJ Multi Tool" to the list and restart it. A banner under the top
-bar (with a shortcut button to the settings pane) stays visible while the
-restriction is detected.
+automatically. Building the `.app` bundles requires macOS (they are
+ad-hoc signed with `codesign`); the release CI builds and signs them on a
+macOS runner — see *Install* above for the resulting download experience.
 
 ## Configuration
 
