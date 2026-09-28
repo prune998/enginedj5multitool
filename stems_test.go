@@ -471,6 +471,88 @@ func TestAudioPlayerStemsPlayback(t *testing.T) {
 	}
 }
 
+// TestRegularSeek drives Seek on a long WAV (forward and backward); the
+// position must follow and playback must continue.
+func TestRegularSeekWAV(t *testing.T) {
+	dir := t.TempDir()
+	wav := filepath.Join(dir, "long.wav")
+	writeWAVTemp(t, wav, 44100, 16, false, 90)
+	p := NewAudioPlayer(TrackRecord{}, wav, "")
+	p.Play()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if src, playing := p.state(); src != nil && playing {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	time.Sleep(300 * time.Millisecond)
+	p.Seek(30)
+	deadline = time.Now().Add(4 * time.Second)
+	for time.Now().Before(deadline) {
+		if pos := p.Position(); pos >= 29 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if pos := p.Position(); pos < 29 {
+		t.Fatalf("position after Seek(30) = %.2f, want ≥ 29", pos)
+	}
+	p.Seek(-25) // backward, lands at ~5 s
+	deadline = time.Now().Add(4 * time.Second)
+	for time.Now().Before(deadline) {
+		if pos := p.Position(); pos <= 7 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if pos := p.Position(); pos > 8 {
+		t.Fatalf("position after Seek(-25) = %.2f, want ≤ 8", pos)
+	}
+	p.Stop()
+}
+
+// TestRegularSeekMP3 seeks inside a real MP3 (skipped without ffmpeg).
+func TestRegularSeekMP3(t *testing.T) {
+	ffmpeg, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		t.Skip("MP3 seek test needs ffmpeg on the PATH")
+	}
+	dir := t.TempDir()
+	mp3Path := filepath.Join(dir, "long.mp3")
+	cmd := exec.Command(ffmpeg, "-v", "error",
+		"-f", "lavfi", "-i", "aevalsrc=0.5*sin(2*PI*440*t):s=44100:d=90",
+		"-c:a", "libmp3lame", "-b:a", "128k", mp3Path)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("ffmpeg encode: %v\n%s", err, out)
+	}
+	p := NewAudioPlayer(TrackRecord{}, mp3Path, "")
+	p.Play()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if src, playing := p.state(); src != nil && playing {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	time.Sleep(300 * time.Millisecond)
+	p.Seek(40)
+	deadline = time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if pos := p.Position(); pos >= 38 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if pos := p.Position(); pos < 38 {
+		t.Fatalf("position after Seek(40) = %.2f, want ≥ 38", pos)
+	}
+	if total := p.Total(); total < 80 {
+		t.Errorf("MP3 duration = %.1f, want ~90", total)
+	}
+	p.Stop()
+}
+
 // TestStemsSeek changes position during stems playback; the player should
 // keep playing from a new offset.
 func TestStemsSeek(t *testing.T) {
@@ -642,7 +724,8 @@ func TestStemsIconOpensPanel(t *testing.T) {
 }
 
 func TestResampleTo48k(t *testing.T) {
-	// 44100 → 48000: 100 samples become ~108-109, endpoints preserved.
+	// 44100 → 48000: 100 interleaved samples (50 frames) become ~108,
+	// endpoints preserved.
 	in := make([]float32, 100)
 	for i := range in {
 		in[i] = float32(i)
@@ -655,10 +738,52 @@ func TestResampleTo48k(t *testing.T) {
 	if out[0] != in[0] {
 		t.Errorf("first sample = %v, want %v", out[0], in[0])
 	}
+	if len(out)%2 != 0 {
+		t.Errorf("resampled length %d is not frame aligned", len(out))
+	}
 	// Same-rate passthrough.
 	rs2 := &resampler{rate: 48000}
 	if got := rs2.process(in); len(got) != len(in) {
 		t.Fatalf("48k passthrough changed length: %d", len(got))
+	}
+}
+
+// TestResamplerChunksNotDC is the regression for the "WAV goes silent
+// after a few seconds" bug: the old resampler carried its position across
+// chunks, so from the third chunk on every output sample clamped to the
+// chunk's last input sample — a flat DC line. Each chunk must resample
+// independently and keep oscillating.
+func TestResamplerChunksNotDC(t *testing.T) {
+	rs := &resampler{rate: 44100}
+	var out []float32
+	for chunk := 0; chunk < 4; chunk++ {
+		in := make([]float32, 44100*2) // 1 s of stereo
+		for i := 0; i < 44100; i++ {
+			v := float32(0.5 * math.Sin(2*math.Pi*220*float64(i+chunk*44100)/44100))
+			in[i*2] = v
+			in[i*2+1] = v
+		}
+		out = append(out, rs.process(in)...)
+	}
+	if len(out)%2 != 0 {
+		t.Fatalf("output length %d is not frame aligned", len(out))
+	}
+	// every second of output must still oscillate (peak ≈ 0.5, not DC)
+	for sec := 0; sec < 4; sec++ {
+		sec0 := out[sec*48000*2 : (sec+1)*48000*2]
+		lo, hi := float32(1), float32(-1)
+		for _, v := range sec0 {
+			if v < lo {
+				lo = v
+			}
+			if v > hi {
+				hi = v
+			}
+		}
+		if hi-lo < 0.8 {
+			t.Errorf("second %d of the resampled audio is nearly flat (range %.3f) — DC regression",
+				sec, hi-lo)
+		}
 	}
 }
 
@@ -670,5 +795,48 @@ func TestStereoToS16(t *testing.T) {
 		if got != w {
 			t.Errorf("sample %d = %d, want %d", i, got, w)
 		}
+	}
+}
+
+func writeWAVTemp(t *testing.T, path string, rate int, bits int, isFloat bool, seconds int) {
+	t.Helper()
+	n := rate * seconds
+	var pcm []byte
+	for i := 0; i < n; i++ {
+		v := 0.3 * math.Sin(2*math.Pi*220*float64(i)/float64(rate))
+		switch {
+		case isFloat:
+			pcm = binary.LittleEndian.AppendUint32(pcm, math.Float32bits(float32(v)))
+			pcm = binary.LittleEndian.AppendUint32(pcm, math.Float32bits(float32(v)))
+		case bits == 24:
+			x := int32(v * 8388608)
+			pcm = append(pcm, byte(x), byte(x>>8), byte(x>>16))
+			pcm = append(pcm, byte(x), byte(x>>8), byte(x>>16))
+		default:
+			x := int16(v * 32767)
+			pcm = binary.LittleEndian.AppendUint16(pcm, uint16(x))
+			pcm = binary.LittleEndian.AppendUint16(pcm, uint16(x))
+		}
+	}
+	format := uint16(1)
+	if isFloat {
+		format = 3
+	}
+	bitsPerSample := bits
+	hdr := make([]byte, 44)
+	copy(hdr, "RIFF")
+	binary.LittleEndian.PutUint32(hdr[4:], uint32(36+len(pcm)))
+	copy(hdr[8:], "WAVEfmt ")
+	binary.LittleEndian.PutUint32(hdr[16:], 16)
+	binary.LittleEndian.PutUint16(hdr[20:], format)
+	binary.LittleEndian.PutUint16(hdr[22:], 2)
+	binary.LittleEndian.PutUint32(hdr[24:], uint32(rate))
+	binary.LittleEndian.PutUint32(hdr[28:], uint32(rate*bitsPerSample*2/8))
+	binary.LittleEndian.PutUint16(hdr[32:], uint16(bitsPerSample*2/8))
+	binary.LittleEndian.PutUint16(hdr[34:], uint16(bitsPerSample))
+	copy(hdr[36:], "data")
+	binary.LittleEndian.PutUint32(hdr[40:], uint32(len(pcm)))
+	if err := os.WriteFile(path, append(hdr, pcm...), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }

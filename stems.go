@@ -74,33 +74,41 @@ func (l *Library) StemsAvailable() bool {
 	return l.EngineLibrary != "" && l.stemsUUID() != ""
 }
 
-// --- resampler: stateful linear interpolator to the 48kHz device rate ---
+// --- resampler: linear interpolation of interleaved stereo to the 48kHz
+// device rate ---
 
 type resampler struct {
 	rate float64 // source rate
-	pos  float64 // fractional source position, carried across chunks
 }
 
+// process resamples one chunk of interleaved stereo float32. Each chunk is
+// resampled independently (the phase resets at chunk boundaries — the
+// timing stays exact and the sub-sample jitter is far below perception),
+// which keeps the output frame-aligned even when a chunk's output count is
+// odd. The input must have an even sample count (whole stereo frames).
 func (r *resampler) process(in []float32) []float32 {
 	if r.rate == 48000 {
 		return in
 	}
 	step := r.rate / 48000
-	n := int(float64(len(in)) / step)
-	if n == 0 {
+	frames := len(in) / 2
+	n := int(float64(frames) / step)
+	if n < 1 {
 		return nil
 	}
-	out := make([]float32, n)
-	for i := range out {
-		i0 := int(r.pos)
-		if i0 >= len(in)-1 {
-			out[i] = in[len(in)-1]
-			r.pos += step
-			continue
+	out := make([]float32, n*2)
+	for i := 0; i < n; i++ {
+		pos := float64(i) * step
+		i0 := int(pos)
+		if i0 > frames-2 {
+			i0 = frames - 2
 		}
-		f := float32(r.pos - float64(i0))
-		out[i] = in[i0]*(1-f) + in[i0+1]*f
-		r.pos += step
+		if i0 < 0 {
+			i0 = 0
+		}
+		f := float32(pos - float64(i0))
+		out[i*2] = in[i0*2]*(1-f) + in[(i0+1)*2]*f
+		out[i*2+1] = in[i0*2+1]*(1-f) + in[(i0+1)*2+1]*f
 	}
 	return out
 }
@@ -266,6 +274,7 @@ func (s *pcmSource) reset() {
 	s.mu.Lock()
 	s.chunks = nil
 	s.bytes = 0
+	s.pulled = 0 // position bookkeeping restarts with the new offset
 	s.eof = false
 	s.cond.Broadcast()
 	s.mu.Unlock()
@@ -356,6 +365,7 @@ type AudioPlayer struct {
 	dec       *stemsDecoder // active stems decode process
 	stemsFile *stemsFile    // parsed stems container while playing stems
 	stopCh    chan struct{} // closed to stop the producer
+	seekSec   atomic.Int64  // regular-file seek target in ms (0 = none)
 	stopOnce  sync.Once
 	playing   atomic.Bool
 	paused    atomic.Bool
@@ -438,14 +448,12 @@ func (p *AudioPlayer) TogglePause() bool {
 	return p.paused.Load()
 }
 
-// Seek jumps delta seconds relative to the current position (stems only).
+// Seek jumps delta seconds relative to the current position — for every
+// song: stems files jump by packet, regular files reposition their decoder.
 func (p *AudioPlayer) Seek(delta float64) {
 	p.mu.Lock()
-	f := p.stemsFile
+	stems := p.stemsFile
 	p.mu.Unlock()
-	if f == nil {
-		return
-	}
 	total, pos := p.Total(), p.Position()
 	target := pos + delta
 	if target < 0 {
@@ -454,14 +462,18 @@ func (p *AudioPlayer) Seek(delta float64) {
 	if total > 0 && target > total {
 		target = total
 	}
-	idx := int(target * float64(f.Timescale) / float64(f.SamplesPerPkt))
-	if idx >= len(f.Packets) {
-		idx = len(f.Packets) - 1
+	if stems != nil {
+		idx := int(target * float64(stems.Timescale) / float64(stems.SamplesPerPkt))
+		if idx >= len(stems.Packets) {
+			idx = len(stems.Packets) - 1
+		}
+		if idx < 0 {
+			idx = 0
+		}
+		p.seekTo.Store(int32(idx))
+	} else {
+		p.seekSec.Store(int64(target * 1000))
 	}
-	if idx < 0 {
-		idx = 0
-	}
-	p.seekTo.Store(int32(idx))
 	// a fresh player restarts the played-time bookkeeping at the new offset
 	p.mu.Lock()
 	p.posBase = target
@@ -732,6 +744,7 @@ func (p *AudioPlayer) produceRegular(stopCh chan struct{}) {
 		return
 	}
 	var srcFn func() ([]float32, bool)
+	var seekFn func(sec float64) error
 	rate := 0
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".wav":
@@ -754,6 +767,17 @@ func (p *AudioPlayer) produceRegular(stopCh chan struct{}) {
 			out := frames[off:end]
 			off = end
 			return out, true
+		}
+		seekFn = func(sec float64) error {
+			f := int(sec * float64(r))
+			if f < 0 {
+				f = 0
+			}
+			if max := len(frames) / 2; f > max {
+				f = max
+			}
+			off = f * 2
+			return nil
 		}
 	case ".mp3":
 		f, err := os.Open(path)
@@ -796,24 +820,49 @@ func (p *AudioPlayer) produceRegular(stopCh chan struct{}) {
 			}
 			return out, true
 		}
+		seekFn = func(sec float64) error {
+			// go-mp3 seeks in decoded PCM bytes (4 per stereo frame)
+			_, err := dec.Seek(int64(sec*float64(rate))*4, io.SeekStart)
+			return err
+		}
 	case ".m4a", ".mp4", ".aac":
 		ffmpeg, lerr := exec.LookPath("ffmpeg")
 		if lerr != nil {
 			p.fail(stopCh, "M4A playback needs ffmpeg on the PATH (or use MP3/WAV)")
 			return
 		}
-		cmd := exec.Command(ffmpeg, "-v", "error", "-i", path, "-f", "f32le",
-			"-ac", "2", "-ar", "48000", "pipe:1")
-		stdout, perr := cmd.StdoutPipe()
-		if perr != nil {
-			p.fail(stopCh, perr.Error())
+		var cmd *exec.Cmd
+		var stdout io.ReadCloser
+		// start (re)spawns the decode process; -ss seeks instantly on the
+		// seekable input file.
+		start := func(sec float64) error {
+			if cmd != nil {
+				stdout.Close()
+				cmd.Process.Kill()
+				cmd.Wait()
+				cmd = nil
+			}
+			args := []string{"-v", "error"}
+			if sec > 0 {
+				args = append(args, "-ss", fmt.Sprintf("%.3f", sec))
+			}
+			args = append(args, "-i", path, "-f", "f32le",
+				"-ac", "2", "-ar", "48000", "pipe:1")
+			cmd = exec.Command(ffmpeg, args...)
+			var perr, serr error
+			stdout, perr = cmd.StdoutPipe()
+			if perr != nil {
+				return perr
+			}
+			if serr = cmd.Start(); serr != nil {
+				return serr
+			}
+			return nil
+		}
+		if err := start(0); err != nil {
+			p.fail(stopCh, err.Error())
 			return
 		}
-		if serr := cmd.Start(); serr != nil {
-			p.fail(stopCh, serr.Error())
-			return
-		}
-		defer cmd.Process.Kill()
 		rate = 48000
 		srcFn = func() ([]float32, bool) {
 			buf := make([]float32, 48000*2) // 0.5s of stereo f32
@@ -829,6 +878,14 @@ func (p *AudioPlayer) produceRegular(stopCh chan struct{}) {
 			}
 			return buf[:n/4], true
 		}
+		seekFn = start
+		defer func() {
+			if cmd != nil {
+				stdout.Close()
+				cmd.Process.Kill()
+				cmd.Wait()
+			}
+		}()
 	default:
 		p.fail(stopCh, fmt.Sprintf("unsupported audio format: %s", filepath.Ext(path)))
 		return
@@ -853,11 +910,28 @@ func (p *AudioPlayer) produceRegular(stopCh chan struct{}) {
 			return
 		default:
 		}
-		if t := p.seekTo.Swap(-1); t >= 0 {
-			// no seeking for regular files: drop the stale request
+		if ms := p.seekSec.Swap(0); ms > 0 {
+			if seekFn != nil {
+				if err := seekFn(float64(ms) / 1000); err != nil {
+					p.fail(stopCh, err.Error())
+					return
+				}
+				rs = &resampler{rate: float64(rate)}
+			}
 			continue
 		}
 		in, more := srcFn()
+		// a seek that lands while decoding: drop the stale chunk and jump
+		if ms := p.seekSec.Swap(0); ms > 0 {
+			if seekFn != nil {
+				if err := seekFn(float64(ms) / 1000); err != nil {
+					p.fail(stopCh, err.Error())
+					return
+				}
+				rs = &resampler{rate: float64(rate)}
+			}
+			continue
+		}
 		if len(in) > 0 {
 			out := rs.process(in)
 			if len(out) > 0 {

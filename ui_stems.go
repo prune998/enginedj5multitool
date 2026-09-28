@@ -66,9 +66,13 @@ func (a *App) playbackSection(rec TrackRecord) {
 	Container(Attrs(Row, CrossMid, Gap(8), Pad2(4, 0)), func() {
 		NextAccessName("playback-row")
 		AssignAccess()
-		if CtrlButton(SymPlay, "Play", !playing) {
-			a.startPlayback(rec)
-		}
+		Container(Attrs(), func() {
+			NextAccessName("playback-play")
+			AssignAccess()
+			if CtrlButton(SymPlay, "Play", !playing) {
+				a.startPlayback(rec)
+			}
+		})
 		if playing {
 			if CtrlButton(SymPause, "Pause", true) {
 				a.stemsPlayer.TogglePause()
@@ -94,19 +98,19 @@ func (a *App) playbackSection(rec TrackRecord) {
 		}
 		return
 	}
+	paused := a.stemsPlayer.Paused()
+	Container(Attrs(Row, CrossMid, Gap(8), Pad2(4, 0)), func() {
+		if CtrlButton(SymPrev, "Back 10s", !paused) {
+			a.stemsPlayer.Seek(-10)
+		}
+		if CtrlButton(SymNext, "Forward 10s", !paused) {
+			a.stemsPlayer.Seek(10)
+		}
+		pos, total := a.stemsPlayer.Position(), a.stemsPlayer.Total()
+		a.L(fmt.Sprintf("%d:%02d / %s", int(pos)/60, int(pos)%60,
+			stemsDuration(total)), FontSize(a.fs(11)), TextColorVec(pk.textDim))
+	})
 	if a.stemsPlayer.HasStems() {
-		paused := a.stemsPlayer.Paused()
-		Container(Attrs(Row, CrossMid, Gap(8), Pad2(4, 0)), func() {
-			if CtrlButton(SymPrev, "Back 10s", !paused) {
-				a.stemsPlayer.Seek(-10)
-			}
-			if CtrlButton(SymNext, "Forward 10s", !paused) {
-				a.stemsPlayer.Seek(10)
-			}
-			pos, total := a.stemsPlayer.Position(), a.stemsPlayer.Total()
-			a.L(fmt.Sprintf("%d:%02d / %s", int(pos)/60, int(pos)%60,
-				stemsDuration(total)), FontSize(a.fs(11)), TextColorVec(pk.textDim))
-		})
 		a.stemsRow(a.stemsPlayer.StemMask(), pk)
 	}
 }
