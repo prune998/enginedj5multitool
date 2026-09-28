@@ -33,6 +33,12 @@ func main() {
 	if lc.Err != nil {
 		fmt.Fprintf(os.Stderr, "warning: %v\n", lc.Err)
 	}
+	// The stems payload key is a secret: gitignored stems_key file or the
+	// ENGINDJ5_STEMS_KEY environment variable — never the source tree.
+	// When it is missing, stems playback reports it when used.
+	if _, err := LoadStemsKey(); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: %v\n", err)
+	}
 
 	dbPath := flag.String("db", lc.Library, "path to the Engine DJ database (m.db)")
 	musicRoot := flag.String("musicroot", lc.MusicRoot, "music root folder used to resolve relative track paths")

@@ -10,7 +10,6 @@ import (
 	generic "go.hasen.dev/generic"
 	. "go.hasen.dev/shirei"
 	app "go.hasen.dev/shirei/app"
-	"go.hasen.dev/shirei/audio"
 	. "go.hasen.dev/shirei/widgets"
 )
 
@@ -92,16 +91,13 @@ type App struct {
 	fdaNotice bool
 
 	// Stems: which tracks have stem files, the player state (the player
-	// lives in the MP3 Tags pane), and the audio mixer (platform audio
-	// starts on first stems playback).
+	// lives in the MP3 Tags pane), and the per-stem filter toggles
+	// (persisted across tracks).
 	stemsSet         map[int64]bool
 	stemsScanDone    chan struct{}
 	stemsPlayer      *AudioPlayer
 	stemsPlayerTrack int64
-	stemsMute        [4]bool // stem enabled state (unchecked = muted)
-	stemsMutePrev    [4]bool
-	mixer            *audio.Mixer
-	audioStarted     bool
+	stemsOn          [4]bool // stem filter state (bit i = stem i in the mix)
 }
 
 const (
@@ -112,7 +108,10 @@ const (
 
 // NewApp builds the app state and opens the library.
 func NewApp(dbPath string) *App {
-	a := &App{DBPath: dbPath, Theme: "auto", splitW: 560, SortState: TableSortState{Column: 1}, mixer: audio.NewMixer()}
+	a := &App{DBPath: dbPath, Theme: "auto", splitW: 560, SortState: TableSortState{Column: 1}}
+	for i := range a.stemsOn {
+		a.stemsOn[i] = true // all stems in the mix by default
+	}
 	for _, f := range toolFactories {
 		a.Tools = append(a.Tools, f())
 	}

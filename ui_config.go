@@ -26,6 +26,16 @@ type ConfigTool struct {
 func (t *ConfigTool) Name() string    { return "Settings" }
 func (t *ConfigTool) Icon() IconGlyph { return SymCog }
 
+// configDirHint renders the user config directory for hints ("" when it
+// cannot be resolved).
+func configDirHint() string {
+	dir, err := ConfigDir()
+	if err != nil {
+		return "the user config directory"
+	}
+	return dir
+}
+
 func (t *ConfigTool) View(a *App) {
 	a.L("Settings", FontSize(a.fs(18)), FontWeight(WeightBold))
 	t.ensureLoaded()
@@ -55,6 +65,15 @@ func (t *ConfigTool) View(a *App) {
 			a.L("Discogs personal access token (artwork search) — discogs.com → Settings → Developers",
 				FontSize(a.fs(11)), TextColorVec(a.pal().textDim))
 			a.input(&t.draft.DiscogsToken, DefaultTextInputAttrs())
+		})
+		// Stems key status (read-only; the secret lives in a gitignored file)
+		Container(Attrs(Gap(2)), func() {
+			if StemsKeyConfigured() {
+				a.L("Stems payload key: configured", FontSize(a.fs(11)), TextColorVec(a.pal().textOk))
+			} else {
+				a.wrappedText("Stems payload key: not configured — stems playback is disabled. Put the 32 hex digits of the key in a gitignored stems_key file (working directory or "+configDirHint()+") or set the "+StemsKeyEnvVar+" environment variable.",
+					640, FontSize(a.fs(11)), TextColorVec(a.pal().textDim))
+			}
 		})
 		// Theme
 		Container(Attrs(Gap(2)), func() {

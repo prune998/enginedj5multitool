@@ -169,15 +169,24 @@ demo database with fictitious tracks (`make docs` regenerates them):
   ![Playlist Creator tool: smartlist picker, sort controls, ordered preview and folder tree](docs/screenshot-playlists.png)
 
 - **Stems** — tracks with Engine DJ stem separations show a stem icon in
-  the track list; clicking it opens a side panel with **Play/Stop** and
-  per-stem **mute toggles** (Drums / Bass / Other / Vocals) mixed in
-  lockstep (pure-Go audio through the shirei mixer — no external
-  libraries). The `.stems` container is parsed in pure Go (MP4 boxes +
-  sample tables). **Note:** the stem audio payload itself is
-  Engine-proprietary (the frames do not parse as standard AAC — both
-  ffmpeg and CoreAudio reject them), so playback currently reports an
-  error for those files; the detection, icon and panel are ready for when
-  a decode path exists.
+  the track list; clicking it opens the player in the MP3 Tags pane. The
+  `.stems` container is parsed and decrypted in pure Go (MP4 boxes +
+  sample tables + AES-128-ECB), and the 8-channel AAC payload is decoded
+  through an `ffmpeg` subprocess (no cgo — the same build runs on macOS,
+  Linux and Windows; install ffmpeg for stem and M4A playback). The player
+  has **Play / Pause / Stop**, **±10 s seek** and live **stem filters**:
+  toggle any combination of Vocals / Bass / Drums / Other in or out of the
+  mix while playing — solo one stem, drop the vocals, or mute everything.
+  Tracks without a stems file play their own audio file (MP3, WAV and M4A,
+  stereo).
+
+  **Stems key (secret)** — decrypting the stems payload needs Engine DJ's
+  16-byte key. It is a secret and is never compiled into the binary nor
+  committed to Git: put its 32 hex digits in a gitignored `stems_key` file
+  in the working directory (or in the per-OS user config directory, next to
+  `config.yaml`), or set the `ENGINDJ5_STEMS_KEY` environment variable
+  (takes precedence). Without it, everything else works and stems playback
+  reports the missing key.
 
 - **Settings** — edits `config.yaml` (library path, music root, Engine
   Library folder, Discogs token, theme, browser width, font family and size)
@@ -401,8 +410,11 @@ seconds (the tool does this for display).
 ## Build
 
 Requires Go (see `go.mod` for the minimum version). No cgo needed — the SQLite
-driver is pure Go ([modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite))
-and shirei uses purego for its macOS/Windows backends.
+driver is pure Go ([modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite)),
+shirei uses purego for its macOS/Windows backends and audio output goes
+through [oto](https://github.com/ebitengine/oto) (pure Go on all three
+platforms). `ffmpeg` on the `PATH` is optional and only needed for M4A and
+stems playback.
 
 ```sh
 make build        # current platform -> ./enginedj5multitool

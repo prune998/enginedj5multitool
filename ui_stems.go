@@ -2,16 +2,15 @@ package main
 
 import (
 	"fmt"
-	"os"
 
 	. "go.hasen.dev/shirei"
-	shireiapp "go.hasen.dev/shirei/app"
 	. "go.hasen.dev/shirei/widgets"
 )
 
-// ui_stems.go: the stems side panel. A stem icon in the track browser opens
-// the panel for that track; it replaces the tool pane while open and offers
-// play/stop with per-stem mute toggles (Drums / Bass / Other / Vocals).
+// ui_stems.go: the playback section inside the MP3 Tags pane. Every track
+// can play its own audio file; tracks with an Engine .stems file play the
+// separated stems instead, with live per-stem filters (Vocals / Bass /
+// Drums / Other) that can isolate one stem or any combination.
 
 // startPlayback stops any current playback and starts the player for the
 // given track. Called from the MP3 Tags pane.
@@ -26,7 +25,8 @@ func (a *App) startPlayback(rec TrackRecord) {
 	}
 	a.stemsPlayer = NewAudioPlayer(rec, regularPath, a.lib.StemsFile(rec.ID))
 	a.stemsPlayerTrack = rec.ID
-	a.stemsPlayer.Play(a.mixer, func() { a.ensureAudio() })
+	a.stemsPlayer.SetStemMask(a.stemMaskBits())
+	a.stemsPlayer.Play()
 }
 
 // stopPlayback halts current playback.
@@ -36,21 +36,46 @@ func (a *App) stopPlayback() {
 	}
 }
 
+// stemMaskBits renders the app-level stem toggles as a bitmask.
+func (a *App) stemMaskBits() uint32 {
+	var mask uint32
+	for i := range a.stemsOn {
+		if a.stemsOn[i] {
+			mask |= 1 << uint(i)
+		}
+	}
+	return mask
+}
+
+// setStemToggle flips one stem's state and applies it live.
+func (a *App) setStemToggle(i int, on bool) {
+	a.stemsOn[i] = on
+	if a.stemsPlayer != nil {
+		a.stemsPlayer.SetStemMask(a.stemMaskBits())
+	}
+}
+
 // playbackSection renders the player inside the MP3 Tags pane for the
-// selected track — available for every track regardless of format or stems.
-// For stemmed tracks the (not yet working) stem list is shown as well.
+// selected track — available for every track regardless of format. For
+// stemmed tracks it adds seek controls and the per-stem filter toggles.
 func (a *App) playbackSection(rec TrackRecord) {
 	pk := a.pal()
 	a.L("Playback", FontSize(a.fs(13)), FontWeight(WeightBold))
-	playing := a.stemsPlayer != nil && a.stemsPlayerTrack == rec.ID && a.stemsPlayer.playing.Load()
+	mine := a.stemsPlayer != nil && a.stemsPlayerTrack == rec.ID
+	playing := mine && a.stemsPlayer.playing.Load()
 	Container(Attrs(Row, CrossMid, Gap(8), Pad2(4, 0)), func() {
 		if CtrlButton(SymPlay, "Play", !playing) {
 			a.startPlayback(rec)
 		}
+		if playing {
+			if CtrlButton(SymPause, "Pause", true) {
+				a.stemsPlayer.TogglePause()
+			}
+		}
 		if CtrlButton(SymCancel, "Stop", playing) {
 			a.stopPlayback()
 		}
-		if a.stemsPlayer != nil && a.stemsPlayerTrack == rec.ID {
+		if mine {
 			status, errMsg, _ := a.stemsPlayer.Status()
 			if errMsg != "" {
 				a.wrappedText(errMsg, 420, FontSize(a.fs(11)), TextColorVec(pk.textError))
@@ -59,19 +84,64 @@ func (a *App) playbackSection(rec TrackRecord) {
 			}
 		}
 	})
-	if a.lib != nil && a.stemsSet[rec.ID] {
-		a.L("Stems (all selected — stem playback is not yet working):", FontSize(a.fs(11)), TextColorVec(pk.textDim))
-		Container(Attrs(Row, Wrap, CrossMid, Gap(10), Pad2(2, 1)), func() {
-			for _, name := range StemNames {
-				Container(Attrs(Row, CrossMid, Gap(4)), func() {
-					Icon(SymBoxTick, TextColorVec(pk.textOk), FontSize(a.fs(12)))
-					a.L(name, FontSize(a.fs(12)))
-				})
-			}
-		})
-		a.wrappedText("Stems are the Engine DJ separations stored next to the library. Stem playback is not yet working — the stems payload is Engine-proprietary and cannot be decoded yet. Play plays the original file in any format.",
-			a.paneTextWidth(), FontSize(a.fs(11)), TextColorVec(pk.textDim))
+	if !mine {
+		// Not playing this track: still offer the stem mix for stemmed
+		// tracks so it can be set before pressing Play.
+		if a.lib != nil && a.stemsSet[rec.ID] {
+			a.stemsRow(0xf, pk)
+		}
+		return
 	}
+	if a.stemsPlayer.HasStems() {
+		paused := a.stemsPlayer.Paused()
+		Container(Attrs(Row, CrossMid, Gap(8), Pad2(4, 0)), func() {
+			if CtrlButton(SymPrev, "Back 10s", !paused) {
+				a.stemsPlayer.Seek(-10)
+			}
+			if CtrlButton(SymNext, "Forward 10s", !paused) {
+				a.stemsPlayer.Seek(10)
+			}
+			pos, total := a.stemsPlayer.Position(), a.stemsPlayer.Total()
+			a.L(fmt.Sprintf("%d:%02d / %s", int(pos)/60, int(pos)%60,
+				stemsDuration(total)), FontSize(a.fs(11)), TextColorVec(pk.textDim))
+		})
+		a.stemsRow(a.stemsPlayer.StemMask(), pk)
+	}
+}
+
+// stemsRow renders the four stem filter toggles plus an All reset. mask is
+// the currently applied bitmask (used for the button accents).
+func (a *App) stemsRow(mask uint32, pk palette) {
+	a.L("Stems (toggle which stems are in the mix):", FontSize(a.fs(11)), TextColorVec(pk.textDim))
+	Container(Attrs(Row, Wrap, CrossMid, Gap(8), Pad2(2, 1)), func() {
+		for i, name := range StemNames {
+			on := a.stemsOn[i]
+			accent := pk.textDim
+			if on {
+				accent = pk.textOk
+			}
+			icon := IconGlyph(SymBoxCross)
+			if on {
+				icon = IconGlyph(SymBoxTick)
+			}
+			if CtrlButtonWithAccent(icon, name, accent, true) {
+				a.setStemToggle(i, !on)
+			}
+		}
+		if CtrlButton(SymBoxTick, "All", a.stemMaskBits() != 0xf) {
+			for i := range a.stemsOn {
+				a.setStemToggle(i, true)
+			}
+		}
+	})
+}
+
+// stemsDuration renders seconds as m:ss (blank when unknown).
+func stemsDuration(sec float64) string {
+	if sec <= 0 {
+		return "-:--"
+	}
+	return fmt.Sprintf("%d:%02d", int(sec)/60, int(sec)%60)
 }
 
 // buildStemsSet scans the library for tracks with stems. Called
@@ -97,20 +167,6 @@ func (a *App) buildStemsSet() {
 		WithFrameLock(func() { a.stemsSet = set })
 		RequestNextFrame()
 	}()
-}
-
-// ensureAudio starts the platform audio output once for the process.
-func (a *App) ensureAudio() {
-	if a.audioStarted {
-		return
-	}
-	if err := shireiapp.StartAudio(48000, a.mixer.Fill); err != nil {
-		// Already started (or no device): keep going — the mixer still
-		// renders headlessly and a second StartAudio is a no-op error.
-		fmt.Fprintln(os.Stderr, "audio:", err)
-		return
-	}
-	a.audioStarted = true
 }
 
 // stemsColumn is the browser column with the stem icon (clickable when the
