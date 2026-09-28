@@ -182,11 +182,12 @@ demo database with fictitious tracks (`make docs` regenerates them):
 
   **Stems key (secret)** — decrypting the stems payload needs Engine DJ's
   16-byte key. It is a secret and is never compiled into the binary nor
-  committed to Git: put its 32 hex digits in a gitignored `stems_key` file
-  in the working directory (or in the per-OS user config directory, next to
-  `config.yaml`), or set the `ENGINDJ5_STEMS_KEY` environment variable
-  (takes precedence). Without it, everything else works and stems playback
-  reports the missing key.
+  committed to Git. Configure it (first match wins) as the 32 hex digits
+  in the `ENGINDJ5_STEMS_KEY` environment variable, in a gitignored
+  `stems_key` file in the working directory or the per-OS user config
+  directory, or via the `stems_key` setting in `config.yaml` (Settings
+  tool). Without it, everything else works and stems playback reports the
+  missing key.
 
 - **Settings** — edits `config.yaml` (library path, music root, Engine
   Library folder, Discogs token, theme, browser width, font family and size)

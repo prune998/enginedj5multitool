@@ -62,13 +62,14 @@ func StemsKeyPaths() []string {
 }
 
 // LoadStemsKey resolves and configures the stems payload key. Precedence:
-// the ENGINDJ5_STEMS_KEY environment variable, then the gitignored
-// stems_key file in the working directory, then the one in the user config
-// directory. It returns the source description ("env" or the file path) and
-// a non-nil error when a configured key is malformed; ("", nil) means no
+// the ENGINDJ5_STEMS_KEY environment variable, the gitignored stems_key
+// file in the working directory, the one in the user config directory, and
+// finally the stems_key setting from config.yaml (configKey argument). It
+// returns the source description ("env", or the file/config path) and a
+// non-nil error when a configured key is malformed; ("", nil) means no
 // source is configured, in which case stems playback reports the missing
 // key when used.
-func LoadStemsKey() (string, error) {
+func LoadStemsKey(configKey string) (string, error) {
 	if v := strings.TrimSpace(os.Getenv(StemsKeyEnvVar)); v != "" {
 		return "env", SetStemsKey(v)
 	}
@@ -88,6 +89,9 @@ func LoadStemsKey() (string, error) {
 			return "", fmt.Errorf("%s: %w", path, err)
 		}
 		return path, nil
+	}
+	if v := strings.TrimSpace(configKey); v != "" {
+		return "config.yaml", SetStemsKey(v)
 	}
 	return "", nil
 }
@@ -109,9 +113,27 @@ func SetStemsKey(hexKey string) error {
 // StemsKeyConfigured reports whether a decryption key has been set.
 func StemsKeyConfigured() bool { return len(stemsKey) == 16 }
 
+// StemsKeySource describes where the configured key came from (best-effort,
+// for display): "env", a stems_key file path, "config.yaml", or "" when no
+// key is configured.
+func StemsKeySource() string {
+	if !StemsKeyConfigured() {
+		return ""
+	}
+	if os.Getenv(StemsKeyEnvVar) != "" {
+		return "env"
+	}
+	for _, path := range StemsKeyPaths() {
+		if data, err := os.ReadFile(path); err == nil && strings.TrimSpace(string(data)) != "" {
+			return path
+		}
+	}
+	return "config.yaml"
+}
+
 func stemsCipher() (cipher.Block, error) {
 	if len(stemsKey) != 16 {
-		return nil, errors.New("stems key not configured: put the 32 hex digits of the key in a gitignored stems_key file (or set " + StemsKeyEnvVar + ")")
+		return nil, errors.New("stems key not configured: put the 32 hex digits of the key in a gitignored stems_key file, the stems_key setting in config.yaml, or set " + StemsKeyEnvVar)
 	}
 	return aes.NewCipher(stemsKey)
 }

@@ -33,10 +33,11 @@ func main() {
 	if lc.Err != nil {
 		fmt.Fprintf(os.Stderr, "warning: %v\n", lc.Err)
 	}
-	// The stems payload key is a secret: gitignored stems_key file or the
-	// ENGINDJ5_STEMS_KEY environment variable — never the source tree.
-	// When it is missing, stems playback reports it when used.
-	if _, err := LoadStemsKey(); err != nil {
+	// The stems payload key is a secret: ENGINDJ5_STEMS_KEY env var, the
+	// gitignored stems_key file, or the stems_key setting in config.yaml —
+	// never the source tree. When it is missing, stems playback reports it
+	// when used.
+	if _, err := LoadStemsKey(lc.StemsKey); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: %v\n", err)
 	}
 

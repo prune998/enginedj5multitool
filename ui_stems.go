@@ -64,6 +64,8 @@ func (a *App) playbackSection(rec TrackRecord) {
 	mine := a.stemsPlayer != nil && a.stemsPlayerTrack == rec.ID
 	playing := mine && a.stemsPlayer.playing.Load()
 	Container(Attrs(Row, CrossMid, Gap(8), Pad2(4, 0)), func() {
+		NextAccessName("playback-row")
+		AssignAccess()
 		if CtrlButton(SymPlay, "Play", !playing) {
 			a.startPlayback(rec)
 		}
@@ -114,6 +116,8 @@ func (a *App) playbackSection(rec TrackRecord) {
 func (a *App) stemsRow(mask uint32, pk palette) {
 	a.L("Stems (toggle which stems are in the mix):", FontSize(a.fs(11)), TextColorVec(pk.textDim))
 	Container(Attrs(Row, Wrap, CrossMid, Gap(8), Pad2(2, 1)), func() {
+		NextAccessName("stems-row")
+		AssignAccess()
 		for i, name := range StemNames {
 			on := a.stemsOn[i]
 			accent := pk.textDim

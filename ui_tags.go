@@ -22,10 +22,16 @@ type TagsTool struct {
 	pathText string // display copy of the path (selectable input)
 	pathErr  string // file missing / not an mp3
 
-	tags     MediaTags
-	art      *MediaArt // embedded artwork from the file
-	readErr  string
-	readOnly bool // WAV: tags are shown but cannot be saved
+	tags    MediaTags
+	art     *MediaArt // embedded artwork from the file
+	readErr string
+
+	// WAV (and other formats without editable tags): the Engine DJ library
+	// row shown read-only, plus per-frame display buffers so the inputs
+	// never take edits (same pattern as pathText).
+	dbTags    MediaTags // values from the library (loaded with the selection)
+	dbTagsErr string
+	roTags    MediaTags // display copy, re-bound every frame
 
 	// artwork download state (mutated from the download goroutine under the
 	// frame lock, read during frames)
@@ -113,6 +119,10 @@ func (t *TagsTool) EditorPanel(a *App) {
 		a.errorText("Error: "+t.readErr, a.paneTextWidth())
 		return
 	}
+	if IsWAV(rec) {
+		t.ReadOnlyPanel(a, rec)
+		return
+	}
 	if !IsTaggable(rec) {
 		a.L("Unsupported file type — tag editing supports MP3 (ID3v2) and M4A (MP4) files.",
 			TextColor(40, 70, 40, 1))
@@ -127,8 +137,52 @@ func (t *TagsTool) EditorPanel(a *App) {
 	t.SaveRow(a, rec)
 }
 
-// RatingRow renders the 5-star rating editor. The rating lives in the Engine
-// DJ database (not the file tags), so changes are written immediately and the
+// ReadOnlyPanel shows the Engine DJ library's metadata for tracks whose
+// audio format has no editable tags (WAV), followed by the player (stems
+// included when the track has them). Nothing here writes to the file: the
+// values are re-bound from the library row every frame, so the inputs
+// cannot take edits (they stay selectable for copying).
+func (t *TagsTool) ReadOnlyPanel(a *App, rec TrackRecord) {
+	p := a.pal()
+	a.wrappedText("WAV files carry no editable tags — showing the song info from the Engine DJ library (read-only).",
+		a.paneTextWidth(), FontSize(a.fs(11)), TextColorVec(p.textDim))
+	if t.dbTagsErr != "" {
+		a.errorText("Cannot read the library metadata: "+t.dbTagsErr, a.paneTextWidth())
+	} else {
+		t.roTags = t.dbTags // fresh values every frame
+		Container(Attrs(Expand, Gap(8), Pad2(4, 0)), func() {
+			t.roField(a, "Title", &t.roTags.Title, "ro-title")
+			t.roField(a, "Artist", &t.roTags.Artist, "ro-artist")
+			t.roField(a, "Album", &t.roTags.Album, "ro-album")
+			t.roField(a, "Genre", &t.roTags.Genre, "ro-genre")
+			Container(Attrs(Row, Expand, Gap(8)), func() {
+				t.roField(a, "Year", &t.roTags.Year, "ro-year")
+				t.roField(a, "Track #", &t.roTags.Track, "ro-track")
+				t.roField(a, "BPM", &t.roTags.BPM, "ro-bpm")
+			})
+			t.roField(a, "Composer", &t.roTags.Composer, "ro-composer")
+			Container(Attrs(Expand, Gap(2)), func() {
+				a.L("Comment", FontSize(a.fs(11)), TextColorVec(p.textDim))
+				a.textArea(&t.roTags.Comment)
+			})
+		})
+	}
+	t.RatingRow(a, rec)
+	a.playbackSection(rec)
+}
+
+// roField renders one read-only info row: a themed input whose buffer is
+// re-bound from the library every frame.
+func (t *TagsTool) roField(a *App, label string, buf *string, access string) {
+	Container(Attrs(Expand, Gap(2)), func() {
+		NextAccessName(access)
+		AssignAccess()
+		a.L(label, FontSize(a.fs(11)), TextColorVec(a.pal().textDim))
+		a.input(buf, DefaultTextInputAttrs())
+	})
+}
+
+// RatingRow renders the 5-star rating editor. The rating lives in the Engine// DJ database (not the file tags), so changes are written immediately and the
 // browser list updates in place.
 func (t *TagsTool) RatingRow(a *App, rec TrackRecord) {
 	p := a.pal()
@@ -298,11 +352,27 @@ func (t *TagsTool) ensureLoaded(a *App, rec TrackRecord) {
 	t.path = a.lib.ResolveMedia(rec.Path)
 	t.tags = MediaTags{}
 	t.art = nil
+	t.dbTags, t.dbTagsErr = MediaTags{}, ""
 	t.readErr, t.pathErr = "", ""
 
 	if st, err := os.Stat(t.path); err != nil || st.IsDir() {
 		t.pathErr = "Audio file not found: " + t.path
 		t.readErr = "unavailable"
+		return
+	}
+	if IsWAV(rec) {
+		// WAV has no editable tag block: load the Engine DJ library row
+		// instead (shown read-only by ReadOnlyPanel).
+		if a.lib == nil {
+			t.dbTagsErr = "no library open"
+			return
+		}
+		meta, err := a.lib.TrackMetadata(rec.ID)
+		if err != nil {
+			t.dbTagsErr = err.Error()
+			return
+		}
+		t.dbTags = meta
 		return
 	}
 	tags, err := ReadMediaTags(t.path)

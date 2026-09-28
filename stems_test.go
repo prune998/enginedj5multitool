@@ -39,9 +39,10 @@ func restoreTestKey(t *testing.T) {
 	})
 }
 
-// TestLoadStemsKey covers the key resolution precedence: env var, then the
-// gitignored stems_key file in the working directory, then the one in the
-// user config directory (redirected to a temp dir via ENGINDJ5_CONFIG_DIR).
+// TestLoadStemsKey covers the key resolution precedence: env var, the
+// gitignored stems_key files (working directory, then user config
+// directory, redirected via ENGINDJ5_CONFIG_DIR), and finally the
+// config.yaml setting.
 func TestLoadStemsKey(t *testing.T) {
 	restoreTestKey(t)
 	tmp := t.TempDir()
@@ -56,35 +57,44 @@ func TestLoadStemsKey(t *testing.T) {
 	t.Chdir(workDir)
 
 	// nothing configured anywhere
-	src, err := LoadStemsKey()
+	src, err := LoadStemsKey("")
 	if err != nil || src != "" {
 		t.Fatalf("empty setup: src=%q err=%v, want \"\" nil", src, err)
 	}
 
-	// key file in the config directory
+	// the config.yaml setting is the last fallback
+	src, err = LoadStemsKey(testKeyHex)
+	if err != nil || src != "config.yaml" {
+		t.Fatalf("config fallback: src=%q err=%v, want \"config.yaml\" nil", src, err)
+	}
+	if !StemsKeyConfigured() {
+		t.Fatal("config fallback: key should be configured")
+	}
+
+	// a key file beats the config.yaml setting
 	if err := os.WriteFile(filepath.Join(cfgDir, StemsKeyFile), []byte(testKeyHex+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	src, err = LoadStemsKey()
+	src, err = LoadStemsKey(testKeyHex)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := filepath.Join(cfgDir, StemsKeyFile); src != want || !StemsKeyConfigured() {
-		t.Fatalf("config-dir file: src=%q configured=%v, want %q true", src, StemsKeyConfigured(), want)
+	if want := filepath.Join(cfgDir, StemsKeyFile); src != want {
+		t.Fatalf("config-dir file: src=%q, want %q", src, want)
 	}
 
 	// the working-directory file wins over the config directory
 	if err := os.WriteFile(filepath.Join(workDir, StemsKeyFile), []byte(strings.Repeat("00", 16)), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	src, _ = LoadStemsKey()
+	src, _ = LoadStemsKey(testKeyHex)
 	if src != StemsKeyFile { // reported relative to the working directory
 		t.Fatalf("workdir file: src=%q, want %q", src, StemsKeyFile)
 	}
 
 	// the environment variable beats both files
 	t.Setenv(StemsKeyEnvVar, testKeyHex)
-	src, err = LoadStemsKey()
+	src, err = LoadStemsKey(testKeyHex)
 	if err != nil || src != "env" {
 		t.Fatalf("env var: src=%q err=%v, want \"env\" nil", src, err)
 	}
@@ -94,7 +104,7 @@ func TestLoadStemsKey(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(tmp, "work", StemsKeyFile), []byte("nothex"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, err = LoadStemsKey()
+	_, err = LoadStemsKey(testKeyHex)
 	if err == nil || !strings.Contains(err.Error(), StemsKeyFile) {
 		t.Fatalf("malformed file: err=%v, want an error naming %s", err, StemsKeyFile)
 	}
@@ -488,6 +498,89 @@ func TestStemsSeek(t *testing.T) {
 		t.Errorf("position after seek = %v, want ≥ 1.4", pos)
 	}
 	p.Stop()
+}
+
+// TestWAVReadOnlyPanel drives the app: selecting a WAV track shows the
+// Engine DJ library's metadata read-only (no editable tag form) plus the
+// playback panel, with the stems toggles when the track has stems.
+func TestWAVReadOnlyPanel(t *testing.T) {
+	if raceEnabled {
+		t.Skip("drive harness races under -race (global shirei state)")
+	}
+	lib, _ := buildStemsLibrary(t)
+	dir := t.TempDir()
+	wav := filepath.Join(dir, "song.wav")
+	frames := make([][2]float64, 4800) // 0.1s of stereo
+	for i := range frames {
+		frames[i] = [2]float64{0.25, -0.25}
+	}
+	writeTestWAV(t, wav, frames)
+	// Turn track 1 into a WAV track (it already has a stems file entry).
+	if _, err := lib.DB.Exec(`UPDATE Track SET path = ?, filename = 'song.wav', fileType = 'wav' WHERE id = 1`, wav); err != nil {
+		t.Fatal(err)
+	}
+
+	GetHost().WindowSize = Vec2{1800, 1000}
+	a := NewApp(filepath.Join(lib.Dir, "m.db"))
+	defer a.Close()
+	a.lib.EngineLibrary = lib.EngineLibrary
+	a.buildStemsSet()
+	<-a.stemsScanDone
+	a.Selected = 1
+	for i, tool := range a.Tools {
+		if tool.Name() == "MP3 Tags" {
+			a.ActiveTool = i
+			break
+		}
+	}
+
+	port, err := drive.FreePort()
+	if err != nil {
+		t.Fatal(err)
+	}
+	AcceptInputCommands(port)
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				RunFrameFn(a.RootView)
+				time.Sleep(8 * time.Millisecond)
+			}
+		}
+	}()
+	defer func() { close(stop); wg.Wait() }()
+	time.Sleep(150 * time.Millisecond)
+
+	// the read-only info fields render…
+	for _, name := range []string{"ro-title", "ro-artist", "ro-album", "ro-genre", "ro-bpm", "ro-year"} {
+		if n, err := drive.Count(port, name); err != nil || n != 1 {
+			t.Fatalf("%s: count=%d err=%v, want 1", name, n, err)
+		}
+	}
+	// …with the values from the Engine DJ library
+	tool, ok := a.Tools[1].(*TagsTool)
+	if !ok {
+		t.Fatal("MP3 Tags tool not found")
+	}
+	if tool.dbTags.Title == "" || tool.dbTags.Artist == "" {
+		t.Fatalf("library metadata not loaded: %+v", tool.dbTags)
+	}
+	// the editable tag form is not shown for WAV
+	if n, _ := drive.Count(port, "field-Year"); n != 0 {
+		t.Fatalf("editable form rendered for a WAV track (field-Year count=%d)", n)
+	}
+	// the player is enabled, with the stems toggles for the stemmed track
+	for _, name := range []string{"playback-row", "stems-row"} {
+		if n, err := drive.Count(port, name); err != nil || n != 1 {
+			t.Fatalf("%s: count=%d err=%v, want 1", name, n, err)
+		}
+	}
 }
 
 // TestStemsIconOpensPanel drives the app: the stem icon renders in the
