@@ -4,6 +4,8 @@ go 1.27.1
 
 require (
 	github.com/bogem/id3v2/v2 v2.1.4
+	github.com/ebitengine/oto/v3 v3.5.1
+	github.com/hajimehoshi/go-mp3 v0.3.4
 	go.hasen.dev/generic v0.1.8
 	go.hasen.dev/shirei v0.7.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -22,8 +24,8 @@ require (
 	github.com/go-text/typesetting v0.3.4 // indirect
 	github.com/godbus/dbus/v5 v5.2.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/hajimehoshi/go-mp3 v0.3.4 // indirect
 	github.com/jezek/xgb v1.1.1 // indirect
+	github.com/jfreymuth/pulse v0.1.3 // indirect
 	github.com/kr/pretty v0.1.0 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect

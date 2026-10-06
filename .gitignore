@@ -7,6 +7,9 @@ dist/
 m.db
 *.db-journal
 
+# secrets — never commit
+stems_key
+
 # go
 *.test
 

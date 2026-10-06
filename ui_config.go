@@ -13,10 +13,12 @@ import (
 // main UI (theme selector, splitter, library path) are session-only — the
 // config file is only written by this tool's Save button.
 type ConfigTool struct {
-	loaded         bool
-	path           string
-	loadErr        string
-	draft          Config
+	loaded    bool
+	path      string
+	loadErr   string
+	draft     Config
+	keySource string // where the active stems key came from ("" = none)
+
 	widthText      string // browser width as editable text
 	fontFamilyText string // font family as editable text
 	fontSizeText   string // font size as editable text
@@ -25,6 +27,16 @@ type ConfigTool struct {
 
 func (t *ConfigTool) Name() string    { return "Settings" }
 func (t *ConfigTool) Icon() IconGlyph { return SymCog }
+
+// configDirHint renders the user config directory for hints ("" when it
+// cannot be resolved).
+func configDirHint() string {
+	dir, err := ConfigDir()
+	if err != nil {
+		return "the user config directory"
+	}
+	return dir
+}
 
 func (t *ConfigTool) View(a *App) {
 	a.L("Settings", FontSize(a.fs(18)), FontWeight(WeightBold))
@@ -55,6 +67,18 @@ func (t *ConfigTool) View(a *App) {
 			a.L("Discogs personal access token (artwork search) — discogs.com → Settings → Developers",
 				FontSize(a.fs(11)), TextColorVec(a.pal().textDim))
 			a.input(&t.draft.DiscogsToken, DefaultTextInputAttrs())
+		})
+		// Stems key (secret; stored in config.yaml)
+		Container(Attrs(Gap(2)), func() {
+			a.L("Stems payload key (32 hex digits) — enables stems playback. Also accepted: a gitignored stems_key file or the "+StemsKeyEnvVar+" environment variable (both take precedence over this setting).",
+				FontSize(a.fs(11)), TextColorVec(a.pal().textDim))
+			a.input(&t.draft.StemsKey, DefaultTextInputAttrs())
+			if StemsKeyConfigured() {
+				a.L("Stems payload key: configured ("+t.keySource+")", FontSize(a.fs(11)), TextColorVec(a.pal().textOk))
+			} else {
+				a.L("Stems payload key: not configured — stems playback is disabled until one of the sources above is set.",
+					FontSize(a.fs(11)), TextColorVec(a.pal().textDim))
+			}
 		})
 		// Theme
 		Container(Attrs(Gap(2)), func() {
@@ -118,6 +142,7 @@ func (t *ConfigTool) ensureLoaded() {
 	t.path = lc.Path
 	t.loadErr = errString(lc.Err)
 	t.draft = lc.Config
+	t.keySource = StemsKeySource()
 	t.syncWidthText()
 	t.fontFamilyText = t.draft.FontFamily
 	t.fontSizeText = intText(t.draft.FontSize)
@@ -177,6 +202,13 @@ func (t *ConfigTool) Save(a *App) {
 	if tags, ok := a.Tools[1].(*TagsTool); ok {
 		tags.discogsToken = t.draft.DiscogsToken
 	}
+	// Apply the stems key live (a malformed one is saved but not applied).
+	if key := strings.TrimSpace(t.draft.StemsKey); key != "" {
+		if err := SetStemsKey(key); err != nil {
+			Toast(SymFail, "Stems key not applied", err.Error())
+		}
+	}
+	t.keySource = StemsKeySource()
 	a.Refresh()
 	Toast(SymITick, "Config saved", "Settings applied to this session and written to config.yaml.")
 }

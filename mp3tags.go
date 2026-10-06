@@ -489,6 +489,14 @@ func IsMP3(rec TrackRecord) bool {
 		strings.HasSuffix(strings.ToLower(rec.Path), ".mp3")
 }
 
+// IsWAV reports whether the track's audio file is a WAV. WAV has no tag
+// block the editor could write, so the MP3 Tags pane shows the Engine DJ
+// library's metadata read-only for these tracks.
+func IsWAV(rec TrackRecord) bool {
+	return strings.EqualFold(strings.TrimSpace(rec.FileType), "wav") ||
+		strings.HasSuffix(strings.ToLower(rec.Path), ".wav")
+}
+
 // IsTaggable reports whether the track's file type is supported by the tag
 // editor (MP3/ID3v2 and M4A/MP4).
 func IsTaggable(rec TrackRecord) bool {

@@ -64,7 +64,7 @@ func keyBadge(a *App, v int64) {
 	Container(Attrs(FixWidth(64), Pad2(1, 0)), func() {
 		Container(Attrs(Row, CrossMid, Corners(4), Pad2(1, 0), Background(h, s, l, 1)), func() {
 			Container(Attrs(FixWidth(6), Pad2(3, 0)), func() {})
-			Label(ki.Code, FontSize(11), FontWeight(WeightBold), TextColor(0, 0, 100, 1))
+			a.L(ki.Code, FontSize(11), FontWeight(WeightBold), TextColor(0, 0, 100, 1))
 		})
 	})
 }

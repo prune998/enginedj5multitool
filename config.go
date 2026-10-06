@@ -26,6 +26,7 @@ type Config struct {
 	WindowWidth   float64 `yaml:"window_width"`   // main window width (saved on quit; 0 = default)
 	WindowHeight  float64 `yaml:"window_height"`  // main window height (saved on quit; 0 = default)
 	DiscogsToken  string  `yaml:"discogs_token"`  // personal access token for artwork search
+	StemsKey      string  `yaml:"stems_key"`      // hex-encoded stems payload key (secret; env var and gitignored file take precedence)
 }
 
 func defaultConfig() Config {

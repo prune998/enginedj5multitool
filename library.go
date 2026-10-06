@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -53,6 +54,34 @@ func OpenLibrary(path string, readOnly bool) (*Library, error) {
 
 func (l *Library) Close() error {
 	return l.DB.Close()
+}
+
+// TrackMetadata reads the descriptive columns of a track straight from the
+// Engine DJ Track table. Used for audio formats without editable tags
+// (WAV): the MP3 Tags pane shows these values read-only instead.
+func (l *Library) TrackMetadata(id int64) (MediaTags, error) {
+	var t MediaTags
+	var year, bpm, playOrder int64
+	err := l.DB.QueryRow(
+		`SELECT COALESCE(title,''), COALESCE(artist,''), COALESCE(album,''),
+			COALESCE(genre,''), COALESCE(comment,''), COALESCE(composer,''),
+			COALESCE(year,0), COALESCE(bpm,0), COALESCE(playOrder,0)
+		 FROM Track WHERE id = ?`, id).
+		Scan(&t.Title, &t.Artist, &t.Album, &t.Genre, &t.Comment, &t.Composer,
+			&year, &bpm, &playOrder)
+	if err != nil {
+		return MediaTags{}, err
+	}
+	if year > 0 {
+		t.Year = strconv.FormatInt(year, 10)
+	}
+	if bpm > 0 {
+		t.BPM = strconv.FormatInt(bpm, 10)
+	}
+	if playOrder > 0 {
+		t.Track = strconv.FormatInt(playOrder, 10)
+	}
+	return t, nil
 }
 
 // Tracks returns all tracks matching the filter (substring on title, artist,
