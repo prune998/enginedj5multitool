@@ -150,10 +150,14 @@ demo database with fictitious tracks (`make docs` regenerates them):
   report, and skips files it doesn't need to touch.
 
   ![Global Edit tool: bulk comment options with Apply to filtered button](docs/screenshot-global.png)
-- **Dedup** — finds groups of library entries that point to the same audio
-  file on disk and shows how their metadata (rating, key, track number)
-  differs. The first entry of each group is the keeper; extra entries can be
-  checked and removed from the database (the audio file is never touched).
+- **Dedup** — finds duplicate library entries two ways: groups that point to
+  the same audio file on disk, and songs that carry the same artist & title
+  tags but live in different files (entries sharing one file are collapsed
+  into the file-duplicate view, so the same-tags section only lists genuine
+  cross-file duplicates). Metadata differences (path, rating, key) are shown
+  per entry. The first entry of each group is the keeper; extra entries can
+  be checked and removed from the database (the audio files are never
+  touched).
 
   ![Dedup tool: duplicate group with keeper and removable extra entry](docs/screenshot-dedup.png)
 

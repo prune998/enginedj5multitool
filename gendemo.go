@@ -126,10 +126,14 @@ func genDemoDB(path string) error {
 			[][4]any{{"Hook 8", 120, 127}}},
 	}
 	// A second library entry pointing at the same file as track 8 gives the
-	// Dedup screenshot a real duplicate group.
+	// Dedup screenshot a real duplicate group, and a third entry with the
+	// same artist & title tags in a different file shows a same-tags group.
+	// The duplicate entry keeps the original tags, so the same-tags view
+	// also collapses it onto the file-group keeper ("+1 on this file").
 	tracks = append(tracks, tracks[7])
-	tracks[8].title = "Ferrite Hearts (copy)"
 	tracks[8].rating, tracks[8].key, tracks[8].comment = 0, -1, ""
+	tracks = append(tracks, tracks[7])
+	tracks[9].rating, tracks[9].key, tracks[9].comment = 80, 3, "#electro"
 
 	// Playlist tree + a smartlist for the Playlist Creator screenshot.
 	if _, err := db.Exec(`INSERT INTO Information (id, uuid, schemaVersionNumber) VALUES (1, 'demo-uuid', 3)`); err != nil {
@@ -152,10 +156,14 @@ func genDemoDB(path string) error {
 		if i == 2 || i == 6 {
 			fileDir = filepath.Join(base, "Music", "DemoMoved")
 		}
-		// The duplicate entry (i == 8) shares the file of the track above.
+		// The duplicate entry (i == 8) shares the file of the track above;
+		// the same-tags entry (i == 9) lives in its own file.
 		pathTitle := tr.title
 		if i == 8 {
 			pathTitle = "Ferrite Hearts"
+		}
+		if i == 9 {
+			pathTitle = "Ferrite Hearts (live)"
 		}
 		audioPath := filepath.Join(fileDir, pathTitle+"."+fileType)
 		fileBytes, ok := fileSize(audioPath)
