@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"os/exec"
@@ -466,6 +467,185 @@ func TestAudioPlayerStemsPlayback(t *testing.T) {
 		t.Errorf("playback position = %v, pacing is off", pos)
 	}
 	p.Stop()
+	if _, playing := p.state(); playing {
+		t.Error("player should be stopped after Stop")
+	}
+}
+
+// TestAudioPlayerVolume pins the volume state handling: default 100, percent
+// clamping, live application to the oto player, and persistence across the
+// player recreation a seek performs.
+func TestAudioPlayerVolume(t *testing.T) {
+	p := NewAudioPlayer(TrackRecord{}, "", "")
+	if got := p.Volume(); got != 100 {
+		t.Fatalf("default volume = %d, want 100", got)
+	}
+	p.SetVolume(150)
+	if got := p.Volume(); got != 100 {
+		t.Errorf("volume above 100 = %d, want clamped to 100", got)
+	}
+	p.SetVolume(-5)
+	if got := p.Volume(); got != 0 {
+		t.Errorf("negative volume = %d, want clamped to 0", got)
+	}
+	p.SetVolume(40)
+	if got := p.Volume(); got != 40 {
+		t.Errorf("volume = %d, want 40", got)
+	}
+
+	// With a real audio device the oto player must carry the volume —
+	// including after a seek, which tears the oto player down and rebuilds
+	// it (oto would otherwise reset the volume to full).
+	lib, _ := buildStemsLibrary(t)
+	dir := t.TempDir()
+	wav := filepath.Join(dir, "song.wav")
+	frames := make([][2]float64, 48000) // 1s of stereo
+	for i := range frames {
+		frames[i] = [2]float64{0.25, 0.25}
+	}
+	writeTestWAV(t, wav, frames)
+	if _, err := lib.DB.Exec(`UPDATE Track SET path = ? WHERE id = 1`, wav); err != nil {
+		t.Fatal(err)
+	}
+	tracks, err := lib.Tracks("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p = NewAudioPlayer(tracks[0], wav, "")
+	p.SetVolume(40)
+	p.Play()
+	defer p.Stop()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if src, playing := p.state(); src != nil && playing {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	p.mu.Lock()
+	player := p.player
+	p.mu.Unlock()
+	if player == nil {
+		t.Skip("no audio device in this environment — state coverage only")
+	}
+	if got := player.Volume(); got != 0.4 {
+		t.Errorf("oto player volume = %v, want 0.4", got)
+	}
+	p.Seek(0.2)
+	p.mu.Lock()
+	player = p.player
+	p.mu.Unlock()
+	if player == nil {
+		t.Fatal("seek left no oto player behind")
+	}
+	if got := player.Volume(); got != 0.4 {
+		t.Errorf("oto player volume after seek = %v, want 0.4 (the recreated player must keep it)", got)
+	}
+}
+
+// TestVolumeSurvivesTrackChange: the volume lives on the App, so a player
+// created for a new track starts at the previously set level.
+func TestVolumeSurvivesTrackChange(t *testing.T) {
+	lib, _ := buildStemsLibrary(t)
+	dir := t.TempDir()
+	wav := filepath.Join(dir, "song.wav")
+	frames := make([][2]float64, 4800) // 0.1s of stereo
+	for i := range frames {
+		frames[i] = [2]float64{0.25, 0.25}
+	}
+	writeTestWAV(t, wav, frames)
+	if _, err := lib.DB.Exec(`UPDATE Track SET path = ? WHERE id = 1`, wav); err != nil {
+		t.Fatal(err)
+	}
+
+	a := NewApp(filepath.Join(lib.Dir, "m.db"))
+	defer func() {
+		a.stopPlayback()
+		a.Close()
+	}()
+	if a.volume != 100 {
+		t.Fatalf("default app volume = %v, want 100", a.volume)
+	}
+	var rec TrackRecord
+	for _, r := range a.Tracks {
+		if r.ID == 1 {
+			rec = r
+			break
+		}
+	}
+	if rec.ID == 0 {
+		t.Fatal("fixture has no track 1")
+	}
+	a.startPlayback(rec)
+	if a.stemsPlayer == nil {
+		t.Fatal("startPlayback created no player")
+	}
+	a.setVolume(30)
+	if got := a.stemsPlayer.Volume(); got != 30 {
+		t.Errorf("player volume after setVolume = %d, want 30", got)
+	}
+
+	// Stopping and playing again (the same or another track) starts the new
+	// player at the session volume.
+	a.startPlayback(rec)
+	if got := a.stemsPlayer.Volume(); got != 30 {
+		t.Errorf("new player volume = %d, want 30 (session volume)", got)
+	}
+}
+
+// TestStopIsImmediate: pressing Stop must cut the audio right away. oto's
+// Player.Close is a no-op (the real close is a GC finalizer), so the source
+// must be finished-and-empty after Stop — otherwise the mux player keeps
+// draining the buffered seconds of PCM and the song keeps sounding.
+func TestStopIsImmediate(t *testing.T) {
+	lib, _ := buildStemsLibrary(t)
+	dir := t.TempDir()
+	wav := filepath.Join(dir, "song.wav")
+	frames := make([][2]float64, 48000*10) // 10s of stereo
+	for i := range frames {
+		frames[i] = [2]float64{0.25, 0.25}
+	}
+	writeTestWAV(t, wav, frames)
+	if _, err := lib.DB.Exec(`UPDATE Track SET path = ? WHERE id = 1`, wav); err != nil {
+		t.Fatal(err)
+	}
+	tracks, err := lib.Tracks("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := NewAudioPlayer(tracks[0], wav, "")
+	p.Play()
+	defer p.Stop()
+
+	// Wait until the pipeline runs and the decoder has buffered audio.
+	var src *pcmSource
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if s, playing := p.state(); s != nil && playing {
+			src = s
+			if src.buffered() > 48000*4 { // at least a second buffered
+				break
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if src == nil {
+		t.Fatal("playback never started")
+	}
+
+	start := time.Now()
+	p.Stop()
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Errorf("Stop took %v — must not block", elapsed)
+	}
+
+	// The buffered audio must be discarded, not left for the mux player to
+	// drain: a read on the (abandoned) source gets EOF immediately.
+	time.Sleep(50 * time.Millisecond)
+	buf := make([]byte, 4096)
+	if n, err := src.Read(buf); n != 0 || err != io.EOF {
+		t.Errorf("read after Stop: n=%d err=%v, want 0/io.EOF (buffered audio must be discarded)", n, err)
+	}
 	if _, playing := p.state(); playing {
 		t.Error("player should be stopped after Stop")
 	}

@@ -186,7 +186,8 @@ demo database with fictitious tracks (`make docs` regenerates them):
   sample tables + AES-128-ECB), and the 8-channel AAC payload is decoded
   through an `ffmpeg` subprocess (no cgo — the same build runs on macOS,
   Linux and Windows; install ffmpeg for stem and M4A playback). The player
-  has **Play / Pause / Stop**, **±10 s seek** and live **stem filters**:
+  has **Play / Pause / Stop**, **±10 s seek**, a **volume slider** (0–100 %,
+  session-wide — it survives track changes) and live **stem filters**:
   toggle any combination of Vocals / Bass / Drums / Other in or out of the
   mix while playing — solo one stem, drop the vocals, or mute everything.
   Tracks without a stems file play their own audio file (MP3, WAV and M4A,

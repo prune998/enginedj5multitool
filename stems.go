@@ -257,6 +257,12 @@ func (s *pcmSource) push(b []byte) {
 	for s.bytes >= pcmSourceMaxBytes && !s.eof {
 		s.cond.Wait()
 	}
+	if s.eof {
+		// playback was stopped (abort) or already finished: the chunk is
+		// dropped, nothing reads it anymore
+		s.mu.Unlock()
+		return
+	}
 	s.chunks = append(s.chunks, b)
 	s.bytes += len(b)
 	s.cond.Signal()
@@ -265,6 +271,19 @@ func (s *pcmSource) push(b []byte) {
 
 func (s *pcmSource) finish() {
 	s.mu.Lock()
+	s.eof = true
+	s.cond.Broadcast()
+	s.mu.Unlock()
+}
+
+// abort discards all buffered-but-unplayed audio and marks the source
+// finished: any further (or currently blocked) Read returns io.EOF. Used
+// when playback is stopped — oto's mux player would otherwise keep
+// draining the buffered seconds of PCM after the stop.
+func (s *pcmSource) abort() {
+	s.mu.Lock()
+	s.chunks = nil
+	s.bytes = 0
 	s.eof = true
 	s.cond.Broadcast()
 	s.mu.Unlock()
@@ -376,6 +395,7 @@ type AudioPlayer struct {
 	status    string
 	err       string
 	mask      atomic.Uint32 // stems to include in the mix (bit i = stem i)
+	vol       atomic.Int64  // output volume in percent (0..100)
 }
 
 // NewAudioPlayer creates a player for a track.
@@ -383,6 +403,7 @@ func NewAudioPlayer(track TrackRecord, regularPath, stemsPath string) *AudioPlay
 	p := &AudioPlayer{Track: track, regularPath: regularPath, stemsPath: stemsPath}
 	p.seekTo.Store(-1)
 	p.mask.Store(0xf) // all stems on
+	p.vol.Store(100)  // full volume
 	return p
 }
 
@@ -394,6 +415,27 @@ func (p *AudioPlayer) SetStemMask(mask uint32) { p.mask.Store(mask) }
 
 // StemMask returns the active stems bitmask.
 func (p *AudioPlayer) StemMask() uint32 { return p.mask.Load() }
+
+// SetVolume sets the output volume in percent (0 = silent, 100 = full) and
+// applies it to the live output. Players created later start at this level
+// (oto resets volume to full on every new player, including after seeks).
+func (p *AudioPlayer) SetVolume(percent int) {
+	if percent < 0 {
+		percent = 0
+	}
+	if percent > 100 {
+		percent = 100
+	}
+	p.vol.Store(int64(percent))
+	p.mu.Lock()
+	if p.player != nil {
+		p.player.SetVolume(float64(percent) / 100)
+	}
+	p.mu.Unlock()
+}
+
+// Volume returns the output volume in percent (0..100).
+func (p *AudioPlayer) Volume() int { return int(p.vol.Load()) }
 
 // Play starts playback. Safe from the UI thread.
 func (p *AudioPlayer) Play() {
@@ -478,14 +520,25 @@ func (p *AudioPlayer) Seek(delta float64) {
 	p.mu.Lock()
 	p.posBase = target
 	src, player := p.src, p.player
-	if player != nil && src != nil {
-		player.Close()
-		np := audioCtx.NewPlayer(src)
-		np.Play()
-		p.player = np
+	// Silence the old output first: oto's Player.Close is a no-op since
+	// v3.4, so the old player would keep playing its buffered audio and
+	// keep pulling from the shared source alongside the new one.
+	// PauseAndStopReading waits only for an in-flight read, which the
+	// producer unblocks.
+	if player != nil {
+		player.PauseAndStopReading()
+		p.player = nil
 	}
+	// Drop the pre-seek buffered audio before the new player starts, so it
+	// cannot buffer stale-position chunks.
 	if src != nil {
 		src.reset()
+	}
+	if player != nil && src != nil {
+		np := audioCtx.NewPlayer(src)
+		np.SetVolume(float64(p.vol.Load()) / 100) // oto resets volume on new players
+		np.Play()
+		p.player = np
 	}
 	p.paused.Store(false)
 	p.mu.Unlock()
@@ -546,14 +599,20 @@ func (p *AudioPlayer) teardownLocked() {
 		go dec.Close()
 	}
 	p.stemsFile = nil
+	// Cut the audio deterministically: oto's Player.Close is a no-op since
+	// v3.4 (the real close runs on a GC finalizer), so the mux player would
+	// keep playing and draining the buffered seconds of PCM. Finish the
+	// source first — an in-flight read returns io.EOF instead of blocking —
+	// then PauseAndStopReading removes the player from the mixer (silence
+	// on the next mixer tick) and ends its reads.
+	if p.src != nil {
+		p.src.abort()
+	}
 	if p.player != nil {
-		p.player.Close()
+		p.player.PauseAndStopReading()
 		p.player = nil
 	}
-	if p.src != nil {
-		p.src.finish()
-		p.src = nil
-	}
+	p.src = nil
 	p.status = ""
 }
 
@@ -582,6 +641,7 @@ func (p *AudioPlayer) newOutputLocked(src *pcmSource) *oto.Player {
 		return nil
 	}
 	player := ctx.NewPlayer(src)
+	player.SetVolume(float64(p.vol.Load()) / 100)
 	player.Play()
 	return player
 }

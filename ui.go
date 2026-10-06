@@ -98,6 +98,7 @@ type App struct {
 	stemsPlayer      *AudioPlayer
 	stemsPlayerTrack int64
 	stemsOn          [4]bool // stem filter state (bit i = stem i in the mix)
+	volume           float32 // player volume in percent (0..100)
 }
 
 const (
@@ -109,7 +110,7 @@ const (
 // NewApp builds the app state and opens the library.
 func NewApp(dbPath string) *App {
 	clipMenu = clipMenuState{} // a fresh UI must not inherit a stale popup
-	a := &App{DBPath: dbPath, Theme: "auto", splitW: 560, SortState: TableSortState{Column: 1}}
+	a := &App{DBPath: dbPath, Theme: "auto", splitW: 560, SortState: TableSortState{Column: 1}, volume: 100}
 	for i := range a.stemsOn {
 		a.stemsOn[i] = true // all stems in the mix by default
 	}

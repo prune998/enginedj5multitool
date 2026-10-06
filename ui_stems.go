@@ -26,6 +26,7 @@ func (a *App) startPlayback(rec TrackRecord) {
 	a.stemsPlayer = NewAudioPlayer(rec, regularPath, a.lib.StemsFile(rec.ID))
 	a.stemsPlayerTrack = rec.ID
 	a.stemsPlayer.SetStemMask(a.stemMaskBits())
+	a.stemsPlayer.SetVolume(int(a.volume + 0.5))
 	a.stemsPlayer.Play()
 }
 
@@ -52,6 +53,38 @@ func (a *App) setStemToggle(i int, on bool) {
 	a.stemsOn[i] = on
 	if a.stemsPlayer != nil {
 		a.stemsPlayer.SetStemMask(a.stemMaskBits())
+	}
+}
+
+// volume is the session-wide player volume in percent (0..100). It lives on
+// the App so it survives track changes: every new player starts at it.
+// (Session-only, like the theme — never written to the config file.)
+
+// setVolume stores the volume and applies it to the live player.
+func (a *App) setVolume(pct float32) {
+	if pct < 0 {
+		pct = 0
+	}
+	if pct > 100 {
+		pct = 100
+	}
+	a.volume = pct
+	if a.stemsPlayer != nil {
+		a.stemsPlayer.SetVolume(int(pct + 0.5))
+	}
+}
+
+// volumeIcon picks the speaker glyph for a volume level (0..100).
+func volumeIcon(v int) IconGlyph {
+	switch {
+	case v <= 0:
+		return SymVolMute
+	case v <= 33:
+		return SymVolLow
+	case v <= 66:
+		return SymVolMid
+	default:
+		return SymVolHigh
 	}
 }
 
@@ -89,6 +122,20 @@ func (a *App) playbackSection(rec TrackRecord) {
 				a.L(status, FontSize(a.fs(11)), TextColorVec(pk.textDim))
 			}
 		}
+	})
+	// Volume: session-wide (survives track changes) and applied live — the
+	// slider also works before playback starts; a player created later
+	// starts at this level.
+	Container(Attrs(Row, CrossMid, Gap(8), Pad2(2, 0)), func() {
+		NextAccessName("volume-row")
+		AssignAccess()
+		Icon(volumeIcon(int(a.volume+0.5)), FontSize(a.fs(14)), TextColorVec(pk.textDim))
+		before := a.volume
+		Slider(&a.volume, SliderAttrs{Min: 0, Max: 100, Step: 1, Width: 160})
+		if a.volume != before {
+			a.setVolume(a.volume)
+		}
+		a.L(fmt.Sprintf("%d%%", int(a.volume+0.5)), FontSize(a.fs(11)), TextColorVec(pk.textDim))
 	})
 	if !mine {
 		// Not playing this track: still offer the stem mix for stemmed
