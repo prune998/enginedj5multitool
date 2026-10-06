@@ -108,6 +108,7 @@ const (
 
 // NewApp builds the app state and opens the library.
 func NewApp(dbPath string) *App {
+	clipMenu = clipMenuState{} // a fresh UI must not inherit a stale popup
 	a := &App{DBPath: dbPath, Theme: "auto", splitW: 560, SortState: TableSortState{Column: 1}}
 	for i := range a.stemsOn {
 		a.stemsOn[i] = true // all stems in the mix by default
@@ -216,6 +217,13 @@ func (a *App) RootView() {
 // it).
 func (a *App) handleGlobalKeys() {
 	fi := GetFrameInput()
+	// Escape closes the clipboard context menu before any widget sees the
+	// key (the menu is app-level chrome, so this is its key handler).
+	if clipMenu.open && fi.Key == KeyEscape {
+		clipMenu.open = false
+		fi.Key = 0
+		return
+	}
 	// Accept Cmd-Q and Ctrl-Q on every platform (Linux window managers and
 	// the drive test harness report either modifier).
 	if fi.Key == KeyQ && GetInputState().Modifiers&(ModCmd|ModCtrl) != 0 {
@@ -381,10 +389,10 @@ func (a *App) Sidebar() {
 				}
 				if active {
 					Icon(tool.Icon(), TextColor(0, 0, 100, 1))
-					Label(tool.Name(), TextColor(0, 0, 100, 1), FontWeight(WeightBold))
+					a.LPlain(tool.Name(), TextColor(0, 0, 100, 1), FontWeight(WeightBold))
 				} else {
 					Icon(tool.Icon(), TextColorVec(p.text))
-					Label(tool.Name(), TextColorVec(p.text))
+					a.LPlain(tool.Name(), TextColorVec(p.text))
 				}
 			})
 		}

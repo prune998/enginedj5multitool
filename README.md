@@ -103,7 +103,15 @@ The window has a top bar (library path, music root override, theme selector,
 reload), a sidebar with the tools, and a shared track browser (search box —
 **Return** runs the search — plus a sortable, virtualized table; click a row
 to select it, or navigate with the **↑/↓ arrow keys** — the detail panel and
-the list scroll follow along). The screenshots below are generated from a
+the list scroll follow along).
+
+**Copy & paste**: every text in the UI can be copied — right-click a label
+(track info, paths, report lines, error messages, table cells…) and choose
+**Copy** to put the whole text on the clipboard. Right-click an editable
+field for **Copy** and **Paste**; inside fields the usual keyboard shortcuts
+(**Cmd/Ctrl+C / X / V**, select-all, undo) work as well.
+
+The screenshots below are generated from a
 demo database with fictitious tracks (`make docs` regenerates them):
 
 - **Cues & Loops** — shows the 8 cue and 8 loop slots of the selected track

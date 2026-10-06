@@ -101,15 +101,15 @@ func (t *TagsTool) EditorPanel(a *App) {
 			a.errorText(t.pathErr, a.paneTextWidth())
 		} else {
 			// Selectable path: select with the mouse and Cmd-C, or use the
-			// Copy button. Re-bound each frame so edits never stick.
+			// Copy button (or right-click). Re-bound each frame so edits
+			// never stick.
 			t.pathText = t.path
 			Container(Attrs(Row, CrossMid, Gap(8)), func() {
 				Container(Attrs(Grow(1)), func() {
 					a.input(&t.pathText, DefaultTextInputAttrs())
 				})
 				if CtrlButton(SymCopy, "Copy", true) {
-					RequestTextCopy(t.path)
-					Toast(SymITick, "Copied", "File path placed on the clipboard.")
+					copyText(t.path)
 				}
 			})
 		}
@@ -559,8 +559,8 @@ func (t *TagsTool) TagBubbles(a *App) {
 					if PressAction() {
 						t.tags.Comment = removeTag(t.tags.Comment, n)
 					}
-					a.L("#"+n, FontSize(a.fs(12)), TextColorVec(p.bubbleInk))
-					a.L("×", FontSize(a.fs(12)), TextColorVec(p.bubbleInk))
+					a.LPlain("#"+n, FontSize(a.fs(12)), TextColorVec(p.bubbleInk))
+					a.LPlain("×", FontSize(a.fs(12)), TextColorVec(p.bubbleInk))
 				})
 			}
 		})

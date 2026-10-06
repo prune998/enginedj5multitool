@@ -135,8 +135,20 @@ func (a *App) fs(size float32) float32 {
 }
 
 // L renders a themed label: the palette text color is applied first so
-// explicit TextColor mods passed by the caller override it.
+// explicit TextColor mods passed by the caller override it. The label lives
+// in its own plain container so right-clicking exactly the text offers
+// Copy; use LPlain for text inside click targets.
 func (a *App) L(text string, mods ...TextStyleFn) {
+	Container(Attrs(), func() {
+		Label(text, append([]TextStyleFn{TextColorVec(a.pal().text)}, mods...)...)
+		a.clipTextMenu(text)
+	})
+}
+
+// LPlain renders a themed label without the right-click Copy affordance —
+// for labels inside click targets (sidebar rows, tag bubbles) where a
+// right-click must not also open a menu.
+func (a *App) LPlain(text string, mods ...TextStyleFn) {
 	Label(text, append([]TextStyleFn{TextColorVec(a.pal().text)}, mods...)...)
 }
 
@@ -271,6 +283,9 @@ func (a *App) input(buf *string, attrs TextInputAttrs) {
 			NextAccessValue("")
 		}
 		AssignAccess()
+		// Right-click offers Copy / Paste (see ui_clipboard.go); CurrentId
+		// is this field's focusable container, the paste target.
+		a.clipFieldMenu(CurrentId(), buf, attrs.Masked)
 		if st.HasFocus {
 			ModAttrs(BorderColorVec(p.inputBorderFocus))
 		} else {
