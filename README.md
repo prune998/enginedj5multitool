@@ -202,9 +202,24 @@ demo database with fictitious tracks (`make docs` regenerates them):
   tool). Without it, everything else works and stems playback reports the
   missing key.
 
+  **Generate Stems** — the MP3 Tags pane can create stems for the selected
+  track through a local [StemDeck](https://github.com/stemdeckapp/stemdeck)
+  server (default `http://localhost:8000`, configurable in Settings). Press
+  **Generate Stems** and the track's audio file is uploaded to StemDeck, the
+  separation runs there (a progress bar follows the job), the six separated
+  WAV stems come back, and the tool builds the four Engine stems — Vocals,
+  Bass, Drums, and Other, where Other is the remaining part of the original
+  mix (guitar + piano + other summed). Each stem is encoded as stereo AAC,
+  the four channel pairs are assembled into 8-channel packets described by a
+  program-config-element AudioSpecificConfig (the layout Engine's own stems
+  files use), encrypted with AES-128-ECB, and written as
+  `<Engine Library>/Stems/<trackID> <uuid>.stems` — ready to play on Engine
+  DJ gear and in this tool. Requires `ffmpeg` on the PATH and a configured
+  stems key; cancel stops the run and asks StemDeck to cancel the job.
+
 - **Settings** — edits `config.yaml` (library path, music root, Engine
-  Library folder, Discogs token, theme, browser width, font family and size)
-  with explicit Save/Reload.
+  Library folder, Discogs token, StemDeck server URL, theme, browser width,
+  font family and size) with explicit Save/Reload.
 
   ![Settings tool: config editor with demo values](docs/screenshot-settings.png)
 

@@ -27,10 +27,11 @@ type Config struct {
 	WindowHeight  float64 `yaml:"window_height"`  // main window height (saved on quit; 0 = default)
 	DiscogsToken  string  `yaml:"discogs_token"`  // personal access token for artwork search
 	StemsKey      string  `yaml:"stems_key"`      // hex-encoded stems payload key (secret; env var and gitignored file take precedence)
+	StemdeckURL   string  `yaml:"stemdeck_url"`   // StemDeck server base URL for stems generation (default http://localhost:8000)
 }
 
 func defaultConfig() Config {
-	return Config{Library: "m.db", Theme: "auto", Tool: 0, BrowserWidth: 560}
+	return Config{Library: "m.db", Theme: "auto", Tool: 0, BrowserWidth: 560, StemdeckURL: DefaultStemdeckURL}
 }
 
 // ConfigDir returns the per-OS user configuration directory for the app:

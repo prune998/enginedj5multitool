@@ -302,6 +302,12 @@ func (r *bitReader) bits(n int) uint32 {
 // pceChannels returns the channel count of an AudioSpecificConfig: standard
 // configurations 1..7 directly (7.1 counts 8 channels, the ffmpeg
 // convention), otherwise by parsing the following PCE.
+//
+// The PCE bit layout follows ffmpeg's decoder (libavcodec aacdec
+// decode_pce), which Engine's own stems files are made with and which this
+// tool must agree with: num_assoc_data is 3 bits (the spec says 4) and the
+// three mixdown flags are conditional 1-bit fields rather than a fixed
+// 4-bit group. Getting these wrong shifts every following bit.
 func pceChannels(dsi []byte) (int, bool) {
 	if len(dsi) < 2 {
 		return 0, false
@@ -313,6 +319,9 @@ func pceChannels(dsi []byte) (int, bool) {
 	if cfg != 0 {
 		return cfg, true
 	}
+	if len(dsi) < 3 {
+		return 0, false
+	}
 	br := &bitReader{b: dsi[2:]}
 	br.bits(4) // element instance tag
 	br.bits(2) // object type
@@ -321,16 +330,16 @@ func pceChannels(dsi []byte) (int, bool) {
 	side := int(br.bits(4))
 	back := int(br.bits(4))
 	lfe := int(br.bits(2))
-	br.bits(4) // assoc data elements
+	br.bits(3) // assoc data elements
 	br.bits(4) // cc elements
-	br.bits(5) // mixdown present flags
-	if c := int(br.bits(8)); c > 0 {
-		for i := 0; i < c && !br.err; i++ {
-			br.bits(8) // comment field
-		}
+	if br.bits(1) == 1 {
+		br.bits(4) // mono mixdown tag
 	}
-	if br.err {
-		return 0, false
+	if br.bits(1) == 1 {
+		br.bits(4) // stereo mixdown tag
+	}
+	if br.bits(1) == 1 {
+		br.bits(3) // matrix mixdown index + pseudo surround enable
 	}
 	ch := 0
 	readElems := func(n int) {
@@ -673,6 +682,12 @@ func writeStems(path string, dsi []byte, timescale, spp uint32, channels int, pa
 	mdhd := mkFullBox("mdhd", 0, u32(0), u32(0), u32(timescale), u32(uint32(uint64(spp)*uint64(durPkts))), u16(0x55c4), u16(0))
 
 	durationTicks := uint64(spp) * uint64(durPkts)
+	// Edit list skipping the AAC encoder priming (one frame of 1024
+	// samples), like Engine's own stems files: without it the decoded
+	// audio starts ~23 ms late relative to the track.
+	segmentMs := uint32(uint64(spp) * uint64(durPkts) * 1000 / uint64(timescale))
+	elst := mkFullBox("elst", 0, u32(1), u32(segmentMs), u32(1024), u32(0x10000))
+	edts := mkBox("edts", elst)
 	buildMoov := func(chunkOffset uint32) []byte {
 		stco := mkFullBox("stco", 0, u32(1), u32(chunkOffset))
 		stbl := mkBox("stbl", stsd, stts, stsc, stsz, stco)
@@ -685,7 +700,7 @@ func writeStems(path string, dsi []byte, timescale, spp uint32, channels int, pa
 			u32(0), u32(0x10000), u32(0),
 			u32(0), u32(0), u32(0x40000000),
 			u32(0), u32(0))
-		trak := mkBox("trak", tkhd, mdia)
+		trak := mkBox("trak", tkhd, edts, mdia)
 		mvhd := mkFullBox("mvhd", 0,
 			u32(0), u32(0), u32(1000), u32(uint32(durationTicks*1000/uint64(timescale))),
 			u32(0x00010000), u16(0x0100), make([]byte, 10),
