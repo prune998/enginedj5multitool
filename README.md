@@ -135,11 +135,14 @@ demo database with fictitious tracks (`make docs` regenerates them):
 
   ![MP3 Tags tool: cover art, rating stars, editable tag form and #tag bubbles](docs/screenshot-tags.png)
 - **Artwork download** — when a track has no embedded cover (or to replace
-  it), fetch one from **MusicBrainz** (via the Cover Art Archive, no key
-  needed) or **Discogs** (requires a personal access token from
-  discogs.com → Settings → Developers). The search uses the **artist name and
-  song title** (falling back to the album), and the downloaded art is
-  previewed and embedded into the file when you press *Save changes*.
+  it), press *Find artwork* to search **MusicBrainz first** (via the Cover
+  Art Archive, no key needed), **then Discogs** (requires a personal access
+  token from discogs.com → Settings → Developers). The search uses the
+  **artist name and song title** (falling back to the album). Every match
+  becomes a browsable candidate: **‹ › arrows** under the artwork box pick
+  which picture to use (`1 / 8`), images download as you view them, and
+  releases without a cover are skipped automatically. The shown image is
+  embedded into the file when you press *Save changes*.
 - **Global Edit** — bulk comment maintenance for every track matching the
   current filter: re-order the comment `#tags` alphabetically, add
   `#cued` / `#looped` when a track has more than one cue or loop, and add
@@ -351,7 +354,7 @@ The code is split so new tools are easy to add:
 | `perfdata.go`  | Engine DJ v5 blob parsing/serialization (`quickCues`, `loops`, `trackData`) and the cue/loop fix computation |
 | `library.go`   | Database access (`Library`, `TrackRecord`), path resolution, fix persistence, DB metadata sync |
 | `mp3tags.go`   | ID3v2 read/write (`MediaTags`) via [bogem/id3v2/v2](https://pkg.go.dev/github.com/bogem/id3v2/v2) |
-| `artwork.go`   | Cover-art download from MusicBrainz / Cover Art Archive / Discogs |
+| `artwork.go`   | Cover-art candidate search (MusicBrainz / Cover Art Archive + Discogs) and image download |
 | `main.go`      | CLI entry: display mode and fix mode (same code paths as the GUI)               |
 | `ui.go`        | shirei app shell: top bar, sidebar, shared track browser, **tool registry**      |
 | `ui_cues.go`   | The *Cues & Loops* tool                                                          |

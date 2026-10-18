@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -136,9 +137,9 @@ func TestStripBrackets(t *testing.T) {
 	}
 }
 
-func TestFetchArtMusicBrainz(t *testing.T) {
-	var caaHits int
+func TestMusicBrainzArtCandidates(t *testing.T) {
 	var recordingQuery, releaseQuery url.Values
+	var releaseCalls int
 	mb := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("User-Agent") == "" {
 			t.Error("MusicBrainz request missing User-Agent")
@@ -149,10 +150,14 @@ func TestFetchArtMusicBrainz(t *testing.T) {
 			recordingQuery = q
 			json.NewEncoder(w).Encode(map[string]any{
 				"recordings": []map[string]any{{
-					"releases": []map[string]any{{"id": "mbid-123"}},
+					"releases": []map[string]any{
+						{"id": "mbid-1"},
+						{"id": "mbid-2"},
+					},
 				}},
 			})
 		case "/release":
+			releaseCalls++
 			releaseQuery = q
 			json.NewEncoder(w).Encode(map[string]any{
 				"releases": []map[string]any{{"id": "album-mbid"}},
@@ -162,36 +167,38 @@ func TestFetchArtMusicBrainz(t *testing.T) {
 		}
 	}))
 	defer mb.Close()
-	caa := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		caaHits++
-		if r.URL.Path != "/mbid-123/front-500" {
-			t.Errorf("CAA path = %q", r.URL.Path)
-		}
-		w.Write(jpegFixture)
-	}))
-	defer caa.Close()
 
-	oldBase, oldCAA := musicBrainzBaseURL, coverArtURL
-	musicBrainzBaseURL, coverArtURL = mb.URL, caa.URL
-	defer func() { musicBrainzBaseURL, coverArtURL = oldBase, oldCAA }()
+	oldBase := musicBrainzBaseURL
+	musicBrainzBaseURL = mb.URL
+	defer func() { musicBrainzBaseURL = oldBase }()
 
-	// Primary: recording search by artist + song title.
-	art, err := fetchArtMusicBrainz("Artist", "Song", "Album")
+	// Primary: recording search by artist + song title; every release of
+	// every recording becomes a candidate (no downloads yet). With fewer
+	// than maxArtCandidatesPerSource matches, the album search tops the
+	// list up (recording matches stay first).
+	cands, err := musicBrainzArtCandidates("Artist", "Song", "Album")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if art.MIME != "image/jpeg" || !bytes.Equal(art.Data, jpegFixture) {
-		t.Errorf("art = %+v", art)
+	if len(cands) != 3 ||
+		cands[0].URL != coverArtURL+"/mbid-1/front-500" ||
+		cands[1].URL != coverArtURL+"/mbid-2/front-500" ||
+		cands[2].URL != coverArtURL+"/album-mbid/front-500" {
+		t.Errorf("candidates = %+v", cands)
+	}
+	for i, c := range cands {
+		if c.Source != "MusicBrainz" {
+			t.Errorf("candidate %d source = %q", i, c.Source)
+		}
 	}
 	if recordingQuery.Get("query") != `artist:"Artist" AND recording:"Song"` {
 		t.Errorf("recording query = %q", recordingQuery.Get("query"))
 	}
-	if caaHits != 1 {
-		t.Errorf("CAA hits = %d", caaHits)
+	if releaseQuery.Get("query") != `artist:"Artist" AND release:"Album"` {
+		t.Errorf("top-up release query = %q", releaseQuery.Get("query"))
 	}
 
 	// Fallback: no recording match → release search by album.
-	caaHits = 0
 	mb.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		switch r.URL.Path {
@@ -199,32 +206,22 @@ func TestFetchArtMusicBrainz(t *testing.T) {
 			recordingQuery = q
 			json.NewEncoder(w).Encode(map[string]any{"recordings": []any{}})
 		case "/release":
+			releaseCalls++
 			releaseQuery = q
 			json.NewEncoder(w).Encode(map[string]any{
 				"releases": []map[string]any{{"id": "album-mbid"}},
 			})
 		}
 	})
-	caa.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		caaHits++
-		if r.URL.Path != "/album-mbid/front-500" {
-			t.Errorf("fallback CAA path = %q", r.URL.Path)
-		}
-		w.Write(jpegFixture)
-	})
-	if art, err := fetchArtMusicBrainz("Artist", "Song", "Album"); err != nil {
+	cands, err = musicBrainzArtCandidates("Artist", "Song", "Album")
+	if err != nil {
 		t.Fatal(err)
-	} else if len(art.Data) == 0 {
-		t.Error("fallback art empty")
 	}
-	if recordingQuery.Get("query") != `artist:"Artist" AND recording:"Song"` {
-		t.Errorf("fallback recording query = %q", recordingQuery.Get("query"))
+	if len(cands) != 1 || cands[0].URL != coverArtURL+"/album-mbid/front-500" {
+		t.Errorf("fallback candidates = %+v", cands)
 	}
 	if releaseQuery.Get("query") != `artist:"Artist" AND release:"Album"` {
 		t.Errorf("fallback release query = %q", releaseQuery.Get("query"))
-	}
-	if caaHits != 1 {
-		t.Errorf("fallback CAA hits = %d", caaHits)
 	}
 
 	// Neither recording nor album matches → clear error.
@@ -236,17 +233,55 @@ func TestFetchArtMusicBrainz(t *testing.T) {
 			json.NewEncoder(w).Encode(map[string]any{"releases": []any{}})
 		}
 	})
-	if _, err := fetchArtMusicBrainz("Artist", "Song", "Album"); err == nil {
+	if _, err := musicBrainzArtCandidates("Artist", "Song", "Album"); err == nil {
 		t.Error("expected error when nothing matches")
+	}
+
+	// Duplicate release IDs across recordings are deduped.
+	mb.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/recording":
+			rels := []map[string]any{}
+			for i := 0; i < 6; i++ {
+				rels = append(rels, map[string]any{"id": fmt.Sprintf("dup-%d", i%3)})
+			}
+			json.NewEncoder(w).Encode(map[string]any{
+				"recordings": []map[string]any{{"releases": rels}},
+			})
+		case "/release":
+			json.NewEncoder(w).Encode(map[string]any{"releases": []any{}})
+		}
+	})
+	cands, err = musicBrainzArtCandidates("Artist", "Song", "Album")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cands) != 3 {
+		t.Errorf("deduped candidates = %d, want 3", len(cands))
+	}
+
+	// The candidate list is capped at maxArtCandidatesPerSource.
+	mb.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/recording" {
+			rels := []map[string]any{}
+			for i := 0; i < maxArtCandidatesPerSource+3; i++ {
+				rels = append(rels, map[string]any{"id": fmt.Sprintf("id-%d", i)})
+			}
+			json.NewEncoder(w).Encode(map[string]any{
+				"recordings": []map[string]any{{"releases": rels}},
+			})
+		}
+	})
+	cands, err = musicBrainzArtCandidates("Artist", "Song", "") // no album → no release search
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cands) != maxArtCandidatesPerSource {
+		t.Errorf("capped candidates = %d, want %d", len(cands), maxArtCandidatesPerSource)
 	}
 }
 
-func TestFetchArtDiscogs(t *testing.T) {
-	imgSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write(jpegFixture)
-	}))
-	defer imgSrv.Close()
-
+func TestDiscogsArtCandidates(t *testing.T) {
 	var gotAuth string
 	var searchQueries []url.Values
 	ds := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -258,7 +293,12 @@ func TestFetchArtDiscogs(t *testing.T) {
 			return
 		}
 		json.NewEncoder(w).Encode(map[string]any{
-			"results": []map[string]any{{"cover_image": imgSrv.URL + "/cover.jpg"}},
+			"results": []map[string]any{
+				{"cover_image": "https://img.example/cover1.jpg"},
+				{"cover_image": ""}, // no image → skipped
+				{"cover_image": "https://img.example/cover1.jpg"}, // duplicate → deduped
+				{"cover_image": "https://img.example/cover2.jpg"},
+			},
 		})
 	}))
 	defer ds.Close()
@@ -267,17 +307,14 @@ func TestFetchArtDiscogs(t *testing.T) {
 	discogsSearchURL = ds.URL
 	defer func() { discogsSearchURL = oldSearch }()
 
-	if _, err := fetchArtDiscogs("Artist", "Song", "Album", ""); err == nil {
+	if _, err := discogsArtCandidates("Artist", "Song", "Album", ""); err == nil {
 		t.Error("expected error without a token")
 	}
 
 	searchQueries = nil
-	art, err := fetchArtDiscogs("Artist", "Song", "Album", "my-token")
+	cands, err := discogsArtCandidates("Artist", "Song", "Album", "my-token")
 	if err != nil {
 		t.Fatal(err)
-	}
-	if art.MIME != "image/jpeg" || len(art.Data) == 0 {
-		t.Errorf("art = %+v", art)
 	}
 	if gotAuth != "Discogs token=my-token" {
 		t.Errorf("Authorization = %q", gotAuth)
@@ -290,6 +327,48 @@ func TestFetchArtDiscogs(t *testing.T) {
 	}
 	if searchQueries[1].Get("release_title") != "Album" {
 		t.Errorf("album fallback query = %v", searchQueries[1])
+	}
+	if searchQueries[1].Get("per_page") != "10" {
+		t.Errorf("per_page = %q, want 10", searchQueries[1].Get("per_page"))
+	}
+	if len(cands) != 2 ||
+		cands[0].URL != "https://img.example/cover1.jpg" ||
+		cands[1].URL != "https://img.example/cover2.jpg" {
+		t.Errorf("candidates = %+v", cands)
+	}
+	for i, c := range cands {
+		if c.Source != "Discogs" {
+			t.Errorf("candidate %d source = %q", i, c.Source)
+		}
+	}
+}
+
+func TestDownloadImage(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/good.jpg":
+			w.Write(jpegFixture)
+		case "/notimage":
+			w.Write([]byte("<html>not an image</html>"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	art, err := downloadImage(srv.URL + "/good.jpg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if art.MIME != "image/jpeg" || !bytes.Equal(art.Data, jpegFixture) {
+		t.Errorf("art = %s, %d bytes", art.MIME, len(art.Data))
+	}
+
+	if _, err := downloadImage(srv.URL + "/missing"); err == nil {
+		t.Error("expected error for 404")
+	}
+	if _, err := downloadImage(srv.URL + "/notimage"); err == nil {
+		t.Error("expected error for non-image content")
 	}
 }
 
