@@ -33,10 +33,16 @@ type TagsTool struct {
 	dbTagsErr string
 	roTags    MediaTags // display copy, re-bound every frame
 
-	// artwork download state (mutated from the download goroutine under the
+	// artwork search state (mutated from background goroutines under the
 	// frame lock, read during frames)
-	artBusy      string
+	artBusy      string // non-empty while the provider chain searches
 	artErr       string
+	cands        []artCandidate    // MusicBrainz matches first, then Discogs
+	candIndex    int               // candidate shown in the artwork box
+	candCache    map[int]*MediaArt // downloaded candidate images, by index
+	candFailed   map[int]bool      // candidates whose download failed
+	candBusy     bool              // downloading the shown candidate
+	artGen       int               // bumped per search; stale goroutines check it
 	pending      *MediaArt
 	pendingSrc   string
 	discogsToken string
@@ -218,29 +224,44 @@ func (t *TagsTool) RatingRow(a *App, rec TrackRecord) {
 }
 
 // ArtworkPanel shows the embedded cover (or the downloaded preview) above the
-// tag form, with buttons to fetch art from MusicBrainz / Discogs.
+// tag form, with a button to search art on MusicBrainz first, then Discogs,
+// and ‹ › arrows to pick between the matches.
 func (t *TagsTool) ArtworkPanel(a *App, rec TrackRecord) {
 	p := a.pal()
 	const boxSize = float32(150)
 
 	Container(Attrs(Row, Gap(12), Pad2(4, 0)), func() {
-		// Artwork box.
-		Container(Attrs(FixSize(boxSize, boxSize), Corners(8), Clip,
-			BackgroundVec(p.swatchEmpty), BorderWidth(1), BorderColorVec(p.inputBorder)), func() {
-			src, key := t.displayArt()
-			if src != nil {
-				if rgba := decodeRGBA(src.Data); rgba != nil {
-					id := UseImage(key, rgba)
-					ImageView(id, Vec2{boxSize, boxSize})
-					return
+		// Artwork box + match picker.
+		Container(Attrs(Gap(4)), func() {
+			Container(Attrs(FixSize(boxSize, boxSize), Corners(8), Clip,
+				BackgroundVec(p.swatchEmpty), BorderWidth(1), BorderColorVec(p.inputBorder)), func() {
+				src, key := t.displayArt()
+				if src != nil {
+					if rgba := decodeRGBA(src.Data); rgba != nil {
+						id := UseImage(key, rgba)
+						ImageView(id, Vec2{boxSize, boxSize})
+						return
+					}
 				}
-			}
-			Container(Attrs(Expand, Row, CrossMid), func() {
-				a.L("no artwork", FontSize(a.fs(12)), TextColorVec(p.textDim))
+				Container(Attrs(Expand, Row, CrossMid), func() {
+					a.L("no artwork", FontSize(a.fs(12)), TextColorVec(p.textDim))
+				})
 			})
+			if len(t.cands) > 1 {
+				Container(Attrs(Row, CrossMid, Gap(6)), func() {
+					if CtrlButton(SymArrowLeft, "", true) {
+						t.stepCandidate(-1)
+					}
+					a.L(fmt.Sprintf("%d / %d", t.candIndex+1, len(t.cands)),
+						FontSize(a.fs(12)), TextColorVec(p.textDim))
+					if CtrlButton(SymArrowRight, "", true) {
+						t.stepCandidate(+1)
+					}
+				})
+			}
 		})
 
-		// Status + download controls.
+		// Status + search controls.
 		Container(Attrs(Grow(1), Gap(6)), func() {
 			a.L("Artwork", FontWeight(WeightBold), FontSize(a.fs(14)))
 
@@ -253,20 +274,20 @@ func (t *TagsTool) ArtworkPanel(a *App, rec TrackRecord) {
 			}
 			a.L(note, FontSize(a.fs(11)), TextColorVec(p.textDim))
 
-			Container(Attrs(Row, CrossMid, Gap(8)), func() {
-				busy := t.artBusy != ""
-				if CtrlButton(SymCloud, "MusicBrainz", !busy) {
-					t.downloadArt(a, "MusicBrainz", rec)
-				}
-				if CtrlButton(SymDownload, "Discogs", !busy) {
-					t.downloadArt(a, "Discogs", rec)
-				}
-			})
+			if CtrlButton(SymCloud, "Find artwork", t.artBusy == "") {
+				t.searchArt(a, rec)
+			}
 
 			if t.artBusy != "" {
 				Container(Attrs(Row, CrossMid, Gap(6)), func() {
 					BusyDots()
 					a.L("Searching "+t.artBusy+"…", FontSize(a.fs(12)), TextColorVec(p.textDim))
+				})
+			} else if t.candBusy {
+				Container(Attrs(Row, CrossMid, Gap(6)), func() {
+					BusyDots()
+					a.L(fmt.Sprintf("Downloading image %d of %d…", t.candIndex+1, len(t.cands)),
+						FontSize(a.fs(12)), TextColorVec(p.textDim))
 				})
 			} else if t.artErr != "" {
 				a.errorText(t.artErr, a.paneTextWidth())
@@ -278,11 +299,11 @@ func (t *TagsTool) ArtworkPanel(a *App, rec TrackRecord) {
 	})
 }
 
-// displayArt picks the artwork to show (downloaded preview wins over the
-// embedded one) and a stable cache key for shirei's image registry.
+// displayArt picks the artwork to show (the selected search candidate wins
+// over the embedded one) and a stable cache key for shirei's image registry.
 func (t *TagsTool) displayArt() (*MediaArt, string) {
 	if t.pending != nil {
-		return t.pending, fmt.Sprintf("pending-%s-%d", t.pendingSrc, t.lastSel)
+		return t.pending, fmt.Sprintf("pending-%s-%d-%d-%d", t.pendingSrc, t.artGen, t.lastSel, t.candIndex)
 	}
 	if t.art != nil {
 		return t.art, fmt.Sprintf("embedded-%d-%x", t.lastSel, len(t.art.Data))
@@ -290,11 +311,12 @@ func (t *TagsTool) displayArt() (*MediaArt, string) {
 	return nil, ""
 }
 
-// downloadArt fetches cover art in the background; results land under the
-// frame lock so the frame function can read them safely. The search uses the
+// searchArt looks for cover art in the background: MusicBrainz first, then
+// Discogs. Every match becomes a browsable candidate; the first one is
+// downloaded and shown, and ‹ › cycles through the rest. The search uses the
 // bare artist name and song title — bracketed suffixes like "(Extended Mix)"
 // are stripped — falling back to the album.
-func (t *TagsTool) downloadArt(a *App, source string, rec TrackRecord) {
+func (t *TagsTool) searchArt(a *App, rec TrackRecord) {
 	artist := firstNonEmpty(t.tags.Artist, rec.Artist)
 	title := stripBrackets(firstNonEmpty(t.tags.Title, rec.Title))
 	if title == "" {
@@ -305,31 +327,148 @@ func (t *TagsTool) downloadArt(a *App, source string, rec TrackRecord) {
 		Toast(SymFail, "Cannot search", "No artist/title to search for.")
 		return
 	}
-	t.artBusy = source
-	t.artErr = ""
+	t.resetArtwork()
+	t.artBusy = "MusicBrainz, then Discogs"
 	token := t.discogsToken
+	gen := t.artGen
 
 	go func() {
-		var art *MediaArt
-		var err error
-		switch source {
-		case "Discogs":
-			art, err = fetchArtDiscogs(artist, title, album, token)
-		default:
-			art, err = fetchArtMusicBrainz(artist, title, album)
-		}
+		// MusicBrainz (Cover Art Archive) first, Discogs second.
+		mbCands, mbErr := musicBrainzArtCandidates(artist, title, album)
+		dCands, dErr := discogsArtCandidates(artist, title, album, token)
 		WithFrameLock(func() {
+			if gen != t.artGen {
+				return // another search or selection superseded this one
+			}
 			t.artBusy = ""
+			cands := append(append([]artCandidate{}, mbCands...), dCands...)
+			if len(cands) > maxArtCandidates {
+				cands = cands[:maxArtCandidates]
+			}
+			if len(cands) == 0 {
+				t.artErr = artSearchError(mbErr, dErr)
+				return
+			}
+			t.cands = cands
+			t.candCache = map[int]*MediaArt{}
+			t.candFailed = map[int]bool{}
+			t.applyCandidate(0) // downloads + shows the first match
+		})
+		RequestNextFrame()
+	}()
+}
+
+// artSearchError builds the message shown when no provider returned anything.
+func artSearchError(mbErr, dErr error) string {
+	switch {
+	case mbErr != nil && dErr != nil:
+		return fmt.Sprintf("No artwork found — MusicBrainz: %v. Discogs: %v.", mbErr, dErr)
+	case mbErr != nil:
+		return mbErr.Error()
+	case dErr != nil:
+		return dErr.Error()
+	}
+	return "No artwork found."
+}
+
+// resetArtwork clears the search results (before a new search and on
+// selection change). Call from a frame — the lock is already held there.
+func (t *TagsTool) resetArtwork() {
+	t.artBusy, t.artErr = "", ""
+	t.cands = nil
+	t.candIndex, t.candBusy = 0, false
+	t.candCache, t.candFailed = nil, nil
+	t.pending, t.pendingSrc = nil, ""
+	t.artGen++
+}
+
+// applyCandidate makes candidate i the one shown in the artwork box (and the
+// one written on Save). Call with the frame lock held — directly from a frame
+// handler, or inside WithFrameLock from a goroutine. Images download lazily:
+// cycling to a never-downloaded candidate starts its download, cycling back
+// to a seen one switches instantly from the cache.
+func (t *TagsTool) applyCandidate(i int) {
+	n := len(t.cands)
+	if n == 0 {
+		return
+	}
+	t.candIndex = ((i % n) + n) % n // wrap around
+	t.artErr = ""
+	if art := t.candCache[t.candIndex]; art != nil {
+		t.pending = art
+		t.pendingSrc = t.cands[t.candIndex].Source
+		t.candBusy = false
+		return
+	}
+	t.pending = nil
+	t.candBusy = true
+	t.startImageDownload(t.candIndex)
+}
+
+// stepCandidate moves dir candidates from the shown one, skipping candidates
+// whose download already failed (wrapping around). Frame handler.
+func (t *TagsTool) stepCandidate(dir int) {
+	n := len(t.cands)
+	if n == 0 {
+		return
+	}
+	i := t.candIndex
+	for step := 0; step < n; step++ {
+		i = ((i+dir)%n + n) % n
+		if !t.candFailed[i] {
+			break
+		}
+	}
+	t.applyCandidate(i)
+}
+
+// startImageDownload downloads candidate i in the background; the image only
+// becomes the pending artwork if it is still the shown candidate when the
+// download lands. Call with the frame lock held.
+func (t *TagsTool) startImageDownload(i int) {
+	gen := t.artGen
+	imageURL, source := t.cands[i].URL, t.cands[i].Source
+	go func() {
+		art, err := downloadImage(imageURL)
+		WithFrameLock(func() {
+			if gen != t.artGen {
+				return // a newer search replaced the results
+			}
 			if err != nil {
-				t.artErr = err.Error()
-			} else {
+				t.candFailed[i] = true
+				// Many releases have no cover; skip to the next image
+				// automatically — unless this one is no longer shown, or
+				// nothing downloadable is left.
+				if t.candIndex == i {
+					if t.allCandidatesFailed() {
+						t.candBusy = false
+						t.artErr = fmt.Sprintf("None of the %d images found could be downloaded.", len(t.cands))
+					} else {
+						t.stepCandidate(+1)
+					}
+				}
+				return
+			}
+			t.candCache[i] = art
+			delete(t.candFailed, i) // a retry may have succeeded
+			if t.candIndex == i {
 				t.pending = art
 				t.pendingSrc = source
-				t.artErr = ""
+				t.candBusy = false
 			}
 		})
 		RequestNextFrame()
 	}()
+}
+
+// allCandidatesFailed reports whether every candidate's download failed.
+func (t *TagsTool) allCandidatesFailed() bool {
+	for i := range t.cands {
+		if !t.candFailed[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func firstNonEmpty(vals ...string) string {
@@ -348,7 +487,7 @@ func (t *TagsTool) ensureLoaded(a *App, rec TrackRecord) {
 	}
 	t.lastSel = a.Selected
 	t.saved = false
-	t.pending, t.pendingSrc, t.artBusy, t.artErr = nil, "", "", ""
+	t.resetArtwork()
 	t.path = a.lib.ResolveMedia(rec.Path)
 	t.tags = MediaTags{}
 	t.art = nil

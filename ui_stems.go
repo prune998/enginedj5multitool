@@ -137,6 +137,7 @@ func (a *App) playbackSection(rec TrackRecord) {
 		}
 		a.L(fmt.Sprintf("%d%%", int(a.volume+0.5)), FontSize(a.fs(11)), TextColorVec(pk.textDim))
 	})
+	a.stemsGenSection(rec)
 	if !mine {
 		// Not playing this track: still offer the stem mix for stemmed
 		// tracks so it can be set before pressing Play.
@@ -160,6 +161,97 @@ func (a *App) playbackSection(rec TrackRecord) {
 	if a.stemsPlayer.HasStems() {
 		a.stemsRow(a.stemsPlayer.StemMask(), pk)
 	}
+}
+
+// stemsGenSection renders the stems generation block of the playback panel:
+// a Generate button (hidden while this track has a run going), the live
+// stage/progress of the active run, and the outcome. Generation sends the
+// track's audio to the local StemDeck server (see stemsgen.go), waits for
+// the separation, downloads the stem WAVs, and writes the encrypted
+// .stems file into the Engine Library.
+func (a *App) stemsGenSection(rec TrackRecord) {
+	p := a.pal()
+	a.L("Generate stems (StemDeck)", FontWeight(WeightBold), FontSize(a.fs(13)))
+
+	if a.stemsGen == nil || a.stemsGen.Track.ID != rec.ID {
+		Container(Attrs(Row, CrossMid, Gap(8), Pad2(4, 0)), func() {
+			NextAccessName("stems-generate")
+			AssignAccess()
+			busy := a.stemsGen != nil && !a.stemsGen.Finished()
+			if CtrlButton(SymAudio, "Generate Stems", !busy) {
+				a.startStemsGen(rec)
+			}
+			if busy {
+				a.L("Another generation is running.", FontSize(a.fs(11)), TextColorVec(p.textDim))
+			} else if a.lib != nil && a.stemsSet[rec.ID] {
+				a.L("This track already has stems — generating again replaces them.",
+					FontSize(a.fs(11)), TextColorVec(p.textDim))
+			} else {
+				a.L("Splits the song via the local StemDeck server into Vocals / Bass / Drums / Other and writes the .stems file.",
+					FontSize(a.fs(11)), TextColorVec(p.textDim))
+			}
+		})
+		return
+	}
+
+	job := a.stemsGen
+	state, stage, errMsg, progress := job.Status()
+	Container(Attrs(Gap(2), Pad2(4, 0)), func() {
+		row := Attrs(Row, CrossMid, Gap(8))
+		Container(row, func() {
+			switch state {
+			case "done":
+				Icon(SymITick, FontSize(a.fs(13)), TextColorVec(p.textOk))
+				a.L("Done", FontWeight(WeightBold), FontSize(a.fs(12)), TextColorVec(p.textOk))
+			case "error":
+				Icon(SymWarn, FontSize(a.fs(13)), TextColorVec(p.textError))
+				a.L("Failed", FontWeight(WeightBold), FontSize(a.fs(12)), TextColorVec(p.textError))
+			case "cancelled":
+				Icon(SymWarn, FontSize(a.fs(13)), TextColorVec(p.textDim))
+				a.L("Cancelled", FontSize(a.fs(12)), TextColorVec(p.textDim))
+			default:
+				a.L(genStateLabel(state), FontWeight(WeightBold), FontSize(a.fs(12)))
+			}
+			if state == "processing" && progress > 0 {
+				a.L(fmt.Sprintf("%d%%", int(progress*100+0.5)), FontSize(a.fs(12)), TextColorVec(p.textDim))
+			}
+			switch state {
+			case "done", "error", "cancelled":
+			default:
+				if CtrlButton(SymCancel, "Cancel", true) {
+					server := a.StemdeckURL
+					if server == "" {
+						server = DefaultStemdeckURL
+					}
+					job.Cancel(server)
+				}
+			}
+		})
+		if state == "processing" && progress > 0 {
+			ProgressBar(float32(progress))
+		}
+		if stage != "" && state != "done" {
+			a.wrappedText(stage, a.paneTextWidth(), FontSize(a.fs(11)), TextColorVec(p.textDim))
+		}
+		if errMsg != "" {
+			a.errorText(errMsg, a.paneTextWidth())
+		}
+	})
+}
+
+// genStateLabel maps a generation state to its display label.
+func genStateLabel(state string) string {
+	switch state {
+	case "uploading":
+		return "Uploading…"
+	case "processing":
+		return "Separating…"
+	case "downloading":
+		return "Downloading stems…"
+	case "encoding":
+		return "Encoding stems…"
+	}
+	return state
 }
 
 // stemsRow renders the four stem filter toggles plus an All reset. mask is

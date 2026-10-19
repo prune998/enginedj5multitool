@@ -38,8 +38,9 @@ func stripBrackets(s string) string {
 	return strings.Join(strings.Fields(s), " ")
 }
 
-// artwork.go: download cover art for a release from MusicBrainz (via the
-// Cover Art Archive) and Discogs, plus helpers to sniff and decode images.
+// artwork.go: search cover art candidates for a release on MusicBrainz (via
+// the Cover Art Archive) and Discogs, download the images, plus helpers to
+// sniff and decode images.
 
 var (
 	musicBrainzBaseURL = "https://musicbrainz.org/ws/2"
@@ -123,17 +124,41 @@ func decodeRGBA(data []byte) *image.RGBA {
 	return rgba
 }
 
-// fetchArtMusicBrainz searches the recording by artist + song title (falling
-// back to a release search on artist + album) and downloads the front cover
-// of the first matching release from the Cover Art Archive.
-func fetchArtMusicBrainz(artist, title, album string) (*MediaArt, error) {
-	releaseID := ""
+// artCandidate is one artwork search result: the provider it came from and
+// the URL to download the image from.
+type artCandidate struct {
+	Source string // "MusicBrainz" or "Discogs"
+	URL    string
+}
 
-	// 1) Recording search by song title.
+const (
+	// Per-provider cap on the candidates kept for the ‹ › picker.
+	maxArtCandidatesPerSource = 6
+	// Total cap (MusicBrainz candidates come first, then Discogs).
+	maxArtCandidates = 12
+)
+
+// musicBrainzArtCandidates searches the recording by artist + song title
+// (topped up / falling back to a release search on artist + album) and
+// returns the front-cover URL of every matching release on the Cover Art
+// Archive, best match first. Many releases have no cover on the archive —
+// those URLs simply fail when downloaded, and the UI skips them.
+func musicBrainzArtCandidates(artist, title, album string) ([]artCandidate, error) {
+	var ids []string
+	seen := map[string]bool{}
+	addID := func(id string) {
+		if id == "" || seen[id] || len(ids) >= maxArtCandidatesPerSource {
+			return
+		}
+		seen[id] = true
+		ids = append(ids, id)
+	}
+
+	// 1) Recording search by song title: every release of every recording.
 	q := url.Values{}
 	q.Set("query", fmt.Sprintf(`artist:"%s" AND recording:"%s"`, artist, title))
 	q.Set("fmt", "json")
-	q.Set("limit", "1")
+	q.Set("limit", "5")
 	data, _, err := httpGetBody(musicBrainzBaseURL+"/recording?"+q.Encode(), map[string]string{
 		"Accept": "application/json",
 	})
@@ -145,18 +170,21 @@ func fetchArtMusicBrainz(artist, title, album string) (*MediaArt, error) {
 				} `json:"releases"`
 			} `json:"recordings"`
 		}
-		if json.Unmarshal(data, &res) == nil &&
-			len(res.Recordings) > 0 && len(res.Recordings[0].Releases) > 0 {
-			releaseID = res.Recordings[0].Releases[0].ID
+		if json.Unmarshal(data, &res) == nil {
+			for _, rec := range res.Recordings {
+				for _, rel := range rec.Releases {
+					addID(rel.ID)
+				}
+			}
 		}
 	}
 
-	// 2) Fallback: release search by album.
-	if releaseID == "" && strings.TrimSpace(album) != "" {
+	// 2) Top-up / fallback: release search by album.
+	if len(ids) < maxArtCandidatesPerSource && strings.TrimSpace(album) != "" {
 		q := url.Values{}
 		q.Set("query", fmt.Sprintf(`artist:"%s" AND release:"%s"`, artist, album))
 		q.Set("fmt", "json")
-		q.Set("limit", "1")
+		q.Set("limit", "5")
 		data, _, err := httpGetBody(musicBrainzBaseURL+"/release?"+q.Encode(), map[string]string{
 			"Accept": "application/json",
 		})
@@ -166,44 +194,44 @@ func fetchArtMusicBrainz(artist, title, album string) (*MediaArt, error) {
 					ID string `json:"id"`
 				} `json:"releases"`
 			}
-			if json.Unmarshal(data, &res) == nil && len(res.Releases) > 0 {
-				releaseID = res.Releases[0].ID
+			if json.Unmarshal(data, &res) == nil {
+				for _, rel := range res.Releases {
+					addID(rel.ID)
+				}
 			}
 		}
 	}
 
-	if releaseID == "" {
+	if len(ids) == 0 {
 		return nil, errors.New("no MusicBrainz release found for this artist/title")
 	}
-	artURL := fmt.Sprintf("%s/%s/front-500", coverArtURL, url.PathEscape(releaseID))
-	imgData, ct, err := httpGetBody(artURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("Cover Art Archive: %w", err)
+	cands := make([]artCandidate, len(ids))
+	for i, id := range ids {
+		cands[i] = artCandidate{
+			Source: "MusicBrainz",
+			URL:    fmt.Sprintf("%s/%s/front-500", coverArtURL, url.PathEscape(id)),
+		}
 	}
-	mime := sniffImageMIME(imgData, ct)
-	if mime == "" {
-		return nil, errors.New("Cover Art Archive returned an unsupported image format")
-	}
-	return &MediaArt{MIME: mime, Data: imgData}, nil
+	return cands, nil
 }
 
-// fetchArtDiscogs searches the release by artist + song title (falling back
-// to artist + album) and downloads its cover image. Requires a personal API
-// token from discogs.com/settings/developers.
-func fetchArtDiscogs(artist, title, album, token string) (*MediaArt, error) {
+// discogsArtCandidates searches the release by artist + song title (falling
+// back to artist + album) and returns the cover-image URL of every match.
+// Requires a personal API token from discogs.com/settings/developers.
+func discogsArtCandidates(artist, title, album, token string) ([]artCandidate, error) {
 	if strings.TrimSpace(token) == "" {
 		return nil, errors.New("Discogs requires a personal access token (discogs.com → Settings → Developers)")
 	}
-	search := func(query url.Values) (string, error) {
+	search := func(query url.Values) ([]string, error) {
 		q := query
 		q.Set("type", "release")
-		q.Set("per_page", "1")
+		q.Set("per_page", "10")
 		data, _, err := httpGetBody(discogsSearchURL+"?"+q.Encode(), map[string]string{
 			"Authorization": "Discogs token=" + strings.TrimSpace(token),
 			"Accept":        "application/json",
 		})
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		var res struct {
 			Results []struct {
@@ -211,40 +239,58 @@ func fetchArtDiscogs(artist, title, album, token string) (*MediaArt, error) {
 			} `json:"results"`
 		}
 		if err := json.Unmarshal(data, &res); err != nil {
-			return "", err
+			return nil, err
 		}
-		if len(res.Results) == 0 {
-			return "", errors.New("no results")
+		var out []string
+		seen := map[string]bool{}
+		for _, r := range res.Results {
+			if r.CoverImage == "" || seen[r.CoverImage] {
+				continue
+			}
+			seen[r.CoverImage] = true
+			out = append(out, r.CoverImage)
+			if len(out) >= maxArtCandidatesPerSource {
+				break
+			}
 		}
-		return res.Results[0].CoverImage, nil
+		return out, nil
 	}
 
 	// 1) Song title search.
 	q := url.Values{}
 	q.Set("artist", artist)
 	q.Set("track", title)
-	cover, err := search(q)
+	covers, err := search(q)
 
 	// 2) Fallback: album search.
-	if err != nil && strings.TrimSpace(album) != "" {
+	if len(covers) == 0 && strings.TrimSpace(album) != "" {
 		q := url.Values{}
 		q.Set("artist", artist)
 		q.Set("release_title", album)
-		cover, err = search(q)
+		covers, err = search(q)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("Discogs search: %w", err)
 	}
-	if cover == "" {
+	if len(covers) == 0 {
 		return nil, errors.New("no Discogs release found for this artist/title")
 	}
-	imgData, ct, err := httpGetBody(cover, nil)
+	cands := make([]artCandidate, len(covers))
+	for i, cover := range covers {
+		cands[i] = artCandidate{Source: "Discogs", URL: cover}
+	}
+	return cands, nil
+}
+
+// downloadImage fetches an image URL and sniffs the image type.
+func downloadImage(imageURL string) (*MediaArt, error) {
+	data, ct, err := httpGetBody(imageURL, nil)
 	if err != nil {
-		return nil, fmt.Errorf("Discogs cover: %w", err)
+		return nil, err
 	}
-	mime := sniffImageMIME(imgData, ct)
+	mime := sniffImageMIME(data, ct)
 	if mime == "" {
-		return nil, errors.New("Discogs returned an unsupported image format")
+		return nil, errors.New("unsupported image format")
 	}
-	return &MediaArt{MIME: mime, Data: imgData}, nil
+	return &MediaArt{MIME: mime, Data: data}, nil
 }

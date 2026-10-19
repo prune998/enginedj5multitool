@@ -80,6 +80,13 @@ func (t *ConfigTool) View(a *App) {
 					FontSize(a.fs(11)), TextColorVec(a.pal().textDim))
 			}
 		})
+		// StemDeck server (stems generation)
+		Container(Attrs(Gap(2)), func() {
+			a.L("StemDeck server URL (stems generation)", FontSize(a.fs(11)), TextColorVec(a.pal().textDim))
+			a.input(&t.draft.StemdeckURL, DefaultTextInputAttrs())
+			a.wrappedText("Base URL of a running StemDeck server (github.com/stemdeckapp/stemdeck). The Generate Stems button in the MP3 Tags pane uploads the selected track there, waits for the separation, and writes the encrypted .stems file into the Engine Library. Default: "+DefaultStemdeckURL,
+				640, FontSize(a.fs(11)), TextColorVec(a.pal().textDim))
+		})
 		// Theme
 		Container(Attrs(Gap(2)), func() {
 			a.L("Theme", FontSize(a.fs(11)), TextColorVec(a.pal().textDim))
@@ -202,6 +209,7 @@ func (t *ConfigTool) Save(a *App) {
 	if tags, ok := a.Tools[1].(*TagsTool); ok {
 		tags.discogsToken = t.draft.DiscogsToken
 	}
+	a.StemdeckURL = strings.TrimSpace(t.draft.StemdeckURL)
 	// Apply the stems key live (a malformed one is saved but not applied).
 	if key := strings.TrimSpace(t.draft.StemsKey); key != "" {
 		if err := SetStemsKey(key); err != nil {

@@ -91,14 +91,16 @@ type App struct {
 	fdaNotice bool
 
 	// Stems: which tracks have stem files, the player state (the player
-	// lives in the MP3 Tags pane), and the per-stem filter toggles
-	// (persisted across tracks).
+	// lives in the MP3 Tags pane), the per-stem filter toggles (persisted
+	// across tracks), and the running stems generation job.
 	stemsSet         map[int64]bool
 	stemsScanDone    chan struct{}
 	stemsPlayer      *AudioPlayer
 	stemsPlayerTrack int64
 	stemsOn          [4]bool // stem filter state (bit i = stem i in the mix)
 	volume           float32 // player volume in percent (0..100)
+	stemsGen         *StemsGenJob
+	StemdeckURL      string // StemDeck server base URL (empty = default)
 }
 
 const (
@@ -636,6 +638,7 @@ func runUI(lc LoadedConfig, snapshotPath string, filter string) {
 	a := NewApp(lc.Library)
 	a.MusicRoot = lc.MusicRoot
 	a.EngineLibrary = lc.EngineLibrary
+	a.StemdeckURL = lc.StemdeckURL
 	// NewApp's Refresh ran before the library paths were set — push them
 	// into the open library and rescan for stems.
 	if a.lib != nil {
